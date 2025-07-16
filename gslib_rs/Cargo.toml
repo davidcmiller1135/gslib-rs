@@ -7,8 +7,12 @@ edition = "2024"
 ndarray = "0.15"        # for multi-dimensional arrays
 rand = "0.8"            # random number generation
 nalgebra = "0.32"       # linear algebra
-plotters = { version = "0.3", optional = true }
+plotters = "0.3"
+lazy_static = "1.4"
+rand_distr = "0.4"
+statrs = "0.15" # for Normal::inverse_cdf
 
-# Optional features
-[features]
-plot = ["plotters"]
+[dev-dependencies]
+tempfile = "3.3"
+
+
