@@ -1,0 +1,6 @@
+# Pinned so the (very strict) lint set only changes when this file does.
+# Bump deliberately, then fix whatever new lints fire.
+[toolchain]
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

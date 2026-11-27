@@ -1,0 +1,95 @@
+[workspace]
+resolver = "3"
+members = [
+    "gslib_rs",
+    "cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/davidcmiller1135/gslib-rs"
+readme = "README.md"
+keywords = ["geostatistics", "kriging", "variogram", "gslib", "simulation"]
+categories = ["science", "mathematics"]
+
+[profile.release]
+# Integer overflow is a bug in index arithmetic; never let it wrap silently.
+overflow-checks = true
+
+# ---------------------------------------------------------------------------
+# Lints
+#
+# This workspace is deliberately much stricter than a typical Rust project.
+# Every group below is *denied*; CI additionally runs with `-D warnings`.
+# Exceptions must be written as `#[expect(lint, reason = "...")]` on the
+# smallest possible item (`allow_attributes` forbids bare `#[allow]`), so each
+# one is documented and fails the build once it stops being needed.
+# ---------------------------------------------------------------------------
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+unused_qualifications = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+let_underscore_drop = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+# Whole groups.
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+
+# Group members we turn back off, each for a stated reason.
+# Transitive duplicates (via plotters) are outside our control; `cargo deny`
+# tracks duplicate versions instead.
+multiple_crate_versions = "allow"
+# Conflicts with rustc's `unreachable_pub`, which we prefer: `pub(crate)` says
+# what is meant inside private modules.
+redundant_pub_crate = "allow"
+
+# Restriction lints (opt-in, beyond pedantic/nursery).
+# -- No panics in library code: failures are values (`Result`/`Option`).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+panic_in_result_fn = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+get_unwrap = "deny"
+unwrap_in_result = "deny"
+missing_assert_message = "deny"
+# -- Numerics: every lossy conversion goes through `num.rs`; no silent `as`.
+as_conversions = "deny"
+float_cmp_const = "deny"
+lossy_float_literal = "deny"
+integer_division = "deny"
+# -- Hygiene.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+use_debug = "deny"
+shadow_unrelated = "deny"
+wildcard_enum_match_arm = "deny"
+clone_on_ref_ptr = "deny"
+str_to_string = "deny"
+try_err = "deny"
+exit = "deny"
+mem_forget = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+unneeded_field_pattern = "deny"
+verbose_file_reads = "deny"
+if_then_some_else_none = "deny"
+tests_outside_test_module = "deny"

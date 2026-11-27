@@ -1,0 +1,38 @@
+# cargo-deny policy: run `cargo deny check` (CI does).
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on any RustSec vulnerability or unsound advisory; also flag crates
+# that are unmaintained or yanked.
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+# Permissive licences only, plus MPL-2.0 (file-level copyleft, compatible
+# with distributing an MIT binary) which plotters' font stack uses.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unicode-3.0",
+    "Unlicense",
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions come from plotters' dependency tree; keep them visible.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

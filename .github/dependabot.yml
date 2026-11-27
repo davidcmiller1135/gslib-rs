@@ -1,0 +1,23 @@
+# Weekly update PRs, grouped so they arrive as one PR per ecosystem.
+# CI (pinned toolchain, strict lints, cargo deny) must pass before merging.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
