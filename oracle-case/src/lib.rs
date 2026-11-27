@@ -165,6 +165,29 @@ pub struct Provenance {
     pub command_line: Vec<String>,
 }
 
+/// GSLIB's `tmin tmax` parameter line: the case's limits, or GSLIB's
+/// customary `-1.0e21 1.0e21` ("no trimming") when it has none.
+#[must_use]
+pub fn trimming_line(limits: Option<[f64; 2]>) -> String {
+    limits.map_or_else(
+        || "-1.0e21 1.0e21".to_owned(),
+        |[tmin, tmax]| format!("{tmin:?} {tmax:?}"),
+    )
+}
+
+/// Check optional trimming limits: finite, with `tmin < tmax`.
+///
+/// # Errors
+/// A message naming the problem.
+pub fn check_trimming(limits: Option<[f64; 2]>) -> std::result::Result<(), String> {
+    match limits {
+        Some([tmin, tmax]) if !(tmin.is_finite() && tmax.is_finite() && tmin < tmax) => Err(
+            format!("trimming_limits [{tmin}, {tmax}] must be finite with tmin < tmax"),
+        ),
+        _ => Ok(()),
+    }
+}
+
 /// Lower-case hexadecimal SHA-256 of `bytes`.
 #[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {

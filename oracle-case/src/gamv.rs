@@ -36,6 +36,11 @@ pub struct Params {
     /// Lag tolerance (`xltol`). Must be positive: GSLIB would silently
     /// replace a non-positive value with `xlag / 2`.
     pub lag_tolerance: f64,
+    /// `[tmin, tmax]`. With one variable, GSLIB keeps a record iff
+    /// `tmin <= v < tmax` (`GAMV.FOR`, `readdata`); its closed pair test
+    /// can then reject nothing more (F-011). Absent: no trimming.
+    #[serde(default)]
+    pub trimming_limits: Option<[f64; 2]>,
 }
 
 impl Params {
@@ -63,6 +68,7 @@ impl Params {
                 return Err(format!("{what} must be finite and positive"));
             }
         }
+        crate::check_trimming(p.trimming_limits)?;
         if p.data.trim().is_empty() || p.data.len() > 40 {
             return Err("data must be a file name of 1-40 characters (GSLIB reads a40)".to_owned());
         }
@@ -70,7 +76,7 @@ impl Params {
     }
 
     /// The GSLIB parameter file: one omnidirectional semivariogram, no
-    /// trimming, no sill standardization.
+    /// sill standardization.
     #[must_use]
     pub fn to_par(&self) -> String {
         let [x, y, z] = self.coordinate_columns;
@@ -85,7 +91,7 @@ impl Params {
              {}   \\file with data\n\
              {x} {y} {z}   \\columns for X, Y, Z coordinates\n\
              1 {}   \\number of variables, column numbers\n\
-             -1.0e21 1.0e21   \\trimming limits\n\
+             {}   \\trimming limits\n\
              {OUTPUT_FILE}   \\file for variogram output\n\
              {}   \\number of lags\n\
              {}   \\lag separation distance\n\
@@ -95,7 +101,12 @@ impl Params {
              0   \\standardize sills? (0=no, 1=yes)\n\
              1   \\number of variograms\n\
              1 1 1   \\tail var., head var., variogram type\n",
-            self.data, self.variable_column, self.nlag, self.lag_spacing, self.lag_tolerance
+            self.data,
+            self.variable_column,
+            crate::trimming_line(self.trimming_limits),
+            self.nlag,
+            self.lag_spacing,
+            self.lag_tolerance
         );
         par
     }
@@ -141,5 +152,33 @@ mod tests {
             "explicit tolerance"
         );
         assert!(bad("variable_column = 4", "variable_column = 0"), "1-based");
+        assert!(
+            bad(
+                "lag_tolerance = 2.5",
+                "lag_tolerance = 2.5\ntrimming_limits = [3.0, 3.0]"
+            ),
+            "empty trimming interval"
+        );
+    }
+
+    #[test]
+    fn trimming_limits_reach_the_par_file() {
+        let with = PARAMS.to_owned() + "\ntrimming_limits = [0.5, 3.25]";
+        let par = Params::from_table(&with.parse().unwrap()).unwrap().to_par();
+        assert!(
+            par.lines().nth(7).unwrap().starts_with("0.5 3.25 "),
+            "{par}"
+        );
+        let untrimmed = Params::from_table(&PARAMS.parse().unwrap())
+            .unwrap()
+            .to_par();
+        assert!(
+            untrimmed
+                .lines()
+                .nth(7)
+                .unwrap()
+                .starts_with("-1.0e21 1.0e21 "),
+            "{untrimmed}"
+        );
     }
 }
