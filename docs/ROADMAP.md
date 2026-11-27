@@ -96,7 +96,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Unsolvable kriging system | node skipped / written as `UNEST` | `Error::SingularSystem` | planned: `OnSingular::SkipAsUnestimated` |
 | Anisotropy ratio ≤ 0 | clamped to `EPSLON` | `Error::InvalidInput` | planned: clamp policy |
 | Power model covariance | `PMX − γ` with a large `PMX` | `CovarianceModel` cannot be built from it | planned, if exact parity needs it |
-| Ties in `nscore` | broken by sort order (despiking optional) | tied values share one score | planned: rank order |
+| Ties in `nscore` | every datum perturbed by ACORN × 1e-6 (seed 69069), so ties break randomly (F-005) | tied values share one score | planned: random despiking with ACORN |
 | Normal quantile | `gauinv` (low-order approximation) | `erfc_inv` (~1e-16) + `libm::erfc` | not planned: extension |
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag` with tolerance `xltol` | equal classes over `[0, max]` | to be replaced by GSLIB lags with directional `gamv` |
@@ -193,9 +193,11 @@ reference run, and say which.
   fixed**. F-004.
 - [ ] `backtr` interior interpolation (linear in score space) and the meaning
   of tail option 1: `transform.rs`
-- [ ] `nscore` tie handling and despiking: §2
+- [x] `nscore` tie handling: random despiking of every datum (`EPSLON =
+  1.0e-6`, ACORN seeded 69069), `NSCORE.FOR` lines 31, 142, 179. F-005.
 - [ ] `gauinv` algorithm and accuracy: §2
-- [ ] ACORN as the generator; 69069 as the customary seed: §2, `cli/src/main.rs`
+- [~] ACORN as the generator and 69069 as its seed: confirmed in `nscore`
+  (F-005); still to check in each simulation program. §2, `cli/src/main.rs`
 - [ ] Grid conventions: `xmn` is the first cell's centre, x-fastest order:
   `simulation/grid.rs`
 - [ ] Search parameter names (`ndmax`, `nodmax`, `radius`): `search.rs`

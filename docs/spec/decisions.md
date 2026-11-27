@@ -385,3 +385,28 @@ Read from `vendor/gslib-2.0/src/GSLIB/SETROT.FOR`, `GSLIB/COVA3.FOR` and
   is below `EPSLON = 1.e-10`, i.e. within about 1e-5 in rotated, scaled
   units. gslib-rs uses Euclidean distance below 1e-10. Recorded in ROADMAP
   §2; exact parity needs a policy for it.
+
+## Finding F-005: First reference build (2026-11-27)
+From `cargo xtask oracle build` (rewrite rules v1, `xtask/src/rewrite.rs`) in
+this environment:
+- **Compiler:** `GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`.
+- **Flags:** `-fdefault-real-8 -fdefault-double-8 -std=legacy -fno-automatic
+  -O0 -ffp-contract=off -ffixed-line-length-none` (rationale in
+  `xtask/src/main.rs`).
+- **Result:** all 39 programs and the 37-routine library build. 504
+  `fW.D` output descriptors were widened to `es25.16e3`; 41 internal writes
+  (to character variables) were left alone.
+- **Smoke runs** with each program's shipped `.par` and the book data:
+  `nscore` and `vmodel` run to completion and write full double precision
+  (e.g. `-2.5251759342224709E+000`).
+- **nscore despiking**, from `NSCORE/NSCORE.FOR`:
+  - line 179 adds `acorni(idum)*dble(EPSLON)` to **every** datum, with
+    `EPSLON = 1.0e-6` (line 31);
+  - the generator is seeded with `ixv(1) = 69069` (line 142);
+  - ties are therefore broken by random perturbations up to 1e-6, not by
+    sort order. Visible in the smoke run: datum `.06` becomes
+    `6.0000021160891280E-002` in the transformation table.
+- **Consequence for plan step 5:** transformation-table values legitimately
+  differ from the data by up to 1e-6, so that comparison needs an absolute
+  tolerance of 1e-6 justified by this line (D-010). Scores of tie-free data
+  separated by more than 1e-6 are unaffected.

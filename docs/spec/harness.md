@@ -122,9 +122,10 @@ step weakens a lint or tolerance.
      `cargo deny`.
    - Tests: schema round trip; rejection of a missing provenance field;
      checksum mismatch fails; `cargo test` passes with no fixtures present.
-2. **Build stage.** The xtask locates gfortran (setup runs `apt-get update`
-   first, D-006), applies the generic format-widening rules, builds with
-   double promotion, and records the full compiler version and flags.
+2. **Build stage** (done: `cargo xtask oracle build`, F-005). The xtask
+   locates gfortran (setup runs `apt-get update` first, D-006), applies the
+   generic format-widening rules, builds with double promotion, and records
+   the full compiler version and flags.
    - Tests: rewrite rules on Fortran snippets written for the test (no GSLIB
      source lines).
    - The patterns the rules must match are taken from the vendored source.

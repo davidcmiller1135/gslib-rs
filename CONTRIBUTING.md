@@ -26,6 +26,7 @@ cargo test --workspace
 cargo doc --workspace --no-deps
 cargo deny check
 cargo xtask oracle verify-source   # vendored GSLIB 2.0 is untouched
+cargo xtask oracle build           # optional: builds the Fortran reference (needs gfortran)
 ```
 
 The toolchain is pinned in `rust-toolchain.toml`. To upgrade it, bump the
