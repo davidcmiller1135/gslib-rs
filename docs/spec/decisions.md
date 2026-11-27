@@ -912,3 +912,31 @@ From `vendor/gslib-2.0/src/`:
   - A `kt3d` fixture is designed to trigger the probe's geometry. If GSLIB
     misses the datum, a ROADMAP §2 row records the divergence; if not, the
     hypothesis is withdrawn in F-012.
+
+## D-026: sgsim's node search is specified and built with the data search
+- Status: decided
+- Topic: search.md
+- Question: Does this spec also cover `sgsim`'s search of previously
+  simulated nodes (the covariance-ordered "spiral" table, `nodmax`,
+  octants, the two-part search)?
+- Options: specify here and build it with `sgsim`; data search only; specify
+  and build both now.
+- Decision: **specify and build both now**, in the same implementation
+  sequence as the data search.
+- Rationale: the owner's choice, so that one set of rules (order, octants,
+  exactness, errors) covers both searches, and `sgsim` work (harness step
+  8) starts with its search ready.
+- Consequences:
+  - The node search's order is a total order, in the spirit of D-024:
+    - decreasing covariance (GSLIB's `ctable` ranking);
+    - then increasing squared anisotropic distance (GSLIB's `TINY·hsqd`
+      tie-break, made explicit);
+    - then the grid offset's linear index.
+  - Octants in the node search follow `srchnd`'s own convention (target −
+    node, F-012). It differs from the data search only for nodes exactly on
+    an octant boundary, and is reproduced rather than unified (parity; not
+    a defect).
+  - Multiple-grid refinement (`mults`) changes the random path, not the
+    search, and stays with the `sgsim` and RNG specs.
+  - The implementation plan gains node-search steps, which come before
+    harness step 8 but do not block `kt3d` (step 7).
