@@ -342,7 +342,7 @@ pub(crate) const SUITES: [Suite; 12] = [
     Suite {
         name: "with_sentinels",
         seed: 10,
-        note: "40 points where every fifth value is -999: trimming limits and missing values (semantics pending the missing-values spec).",
+        note: "40 points where every fifth value is -999: trimming limits and missing values (docs/spec/missing-values.md).",
         build: with_sentinels,
         format: Format::Gslib,
     },
