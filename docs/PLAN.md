@@ -116,7 +116,7 @@ and acceptance tests named in it.
 | # | Work | Spec | Depends on |
 |---|---|---|---|
 | B1 | **Done.** Extraction API: `Trimming`, `NonFinite`, `GslibData::extract`, `samples` with row indices | `missing-values.md` step 1 (M1, M4, M5, M7, M9) | A2 |
-| B2 | Row-aligned writing: `with_optional_column` | step 2 (M3, M8) | B1 |
+| B2 | **Done.** Row-aligned writing: `with_optional_column` | step 2 (M3, M8) | B1 |
 | B3 | CLI flags and the sentinel guard | step 3 (M6) | B1, B2 |
 | B4 | Parity fixtures with trimming (`nscore`, `gamv`, a limit equal to a datum) | step 4 | B1 |
 

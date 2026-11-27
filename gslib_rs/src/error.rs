@@ -36,8 +36,9 @@ pub enum Error {
         reason: String,
     },
 
-    /// A data value is NaN or infinite, and the extraction policy does not
-    /// turn it into a missing value.
+    /// A value is NaN or infinite where a finite one is required: in data
+    /// whose extraction policy does not make it missing, or in a result
+    /// being written.
     #[error("row {row}, column {column}: {value} is not finite")]
     NonFinite {
         /// 1-based data row (not counting the header).

@@ -159,6 +159,62 @@ impl PresentSamples {
     pub fn into_samples(self) -> Vec<Sample> {
         self.samples
     }
+
+    /// Spread one result per sample back over the data set's rows: one
+    /// entry per row, `None` for rows whose value was missing (M3).
+    ///
+    /// # Errors
+    /// [`Error::LengthMismatch`] unless there is one result per sample.
+    pub fn align<T: Copy>(&self, results: &[T]) -> Result<Vec<Option<T>>> {
+        crate::error::check_lengths("results/present samples", results.len(), self.samples.len())?;
+        let mut aligned = vec![None; self.total_rows];
+        for (&row, &r) in self.rows.iter().zip(results) {
+            let slot = aligned.get_mut(row).ok_or_else(|| {
+                Error::invalid(
+                    "present samples",
+                    format!("row {row} is outside the data set"),
+                )
+            })?;
+            *slot = Some(r);
+        }
+        Ok(aligned)
+    }
+}
+
+/// The value written in place of a missing result (D-023). Always finite,
+/// so it reads back as a number that trimming limits can exclude.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MissingCode(f64);
+
+impl MissingCode {
+    /// −999: GSLIB's `UNEST` in `kt3d`, `kb2d`, `cokb3d` and `postsim`, and
+    /// what `nscore` writes for trimmed rows (F-009). gslib-rs also uses it
+    /// for `lusim`, where GSLIB writes −1 (D-023, ROADMAP §2).
+    pub const MINUS_999: Self = Self(-999.0);
+    /// −99: GSLIB's `UNEST` in `sgsim`, the `sisim` family and `postik`
+    /// (F-009).
+    pub const MINUS_99: Self = Self(-99.0);
+
+    /// A code of the caller's choosing.
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if `code` is NaN or infinite.
+    pub fn new(code: f64) -> Result<Self> {
+        if code.is_finite() {
+            Ok(Self(code))
+        } else {
+            Err(Error::invalid(
+                "missing-value code",
+                format!("{code} is not finite"),
+            ))
+        }
+    }
+
+    /// The code's value.
+    #[must_use]
+    pub const fn value(self) -> f64 {
+        self.0
+    }
 }
 
 /// The contents of a GSLIB file: a title, variable names, and a table of
@@ -363,6 +419,48 @@ impl GslibData {
             rows,
             total_rows: self.nrows(),
         })
+    }
+
+    /// A copy with one more column of results, one per row, `None` written
+    /// as `code` (M3, M8). Present values are written unchanged.
+    ///
+    /// # Errors
+    /// - [`Error::LengthMismatch`] unless there is one entry per row.
+    /// - [`Error::InvalidInput`] if a present value is not finite, or equals
+    ///   `code`: it would read back as missing.
+    pub fn with_optional_column(
+        &self,
+        name: impl Into<String>,
+        values: &[Option<f64>],
+        code: MissingCode,
+    ) -> Result<Self> {
+        let name = name.into();
+        crate::error::check_lengths("new column/rows", values.len(), self.nrows())?;
+        let written = values
+            .iter()
+            .enumerate()
+            .map(|(row, v)| match *v {
+                None => Ok(code.value()),
+                Some(x) if !x.is_finite() => Err(Error::NonFinite {
+                    row: row + 1,
+                    column: self.ncols() + 1,
+                    value: x,
+                }),
+                #[expect(
+                    clippy::float_cmp,
+                    reason = "an exact match is what makes a value indistinguishable from the code"
+                )]
+                Some(x) if x == code.value() => Err(Error::invalid(
+                    "missing-value code",
+                    format!(
+                        "row {}: the result {x} of {name:?} equals the code; choose another code",
+                        row + 1
+                    ),
+                )),
+                Some(x) => Ok(x),
+            })
+            .collect::<Result<Vec<f64>>>()?;
+        self.with_column(name, &written)
     }
 
     /// A copy with one more column appended.
@@ -853,6 +951,147 @@ mod tests {
                     assert_eq!((r, c), (row, column), "NaN coordinate");
                 }
                 other => panic!("expected a NaN coordinate error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn missing_codes_are_finite() {
+        assert!(MissingCode::new(f64::NAN).is_err(), "NaN code");
+        assert!(MissingCode::new(f64::INFINITY).is_err(), "infinite code");
+        let bits = |c: MissingCode| c.value().to_bits();
+        assert_eq!(bits(MissingCode::new(-1.0).unwrap()), (-1.0_f64).to_bits());
+        assert_eq!(bits(MissingCode::MINUS_999), (-999.0_f64).to_bits());
+        assert_eq!(bits(MissingCode::MINUS_99), (-99.0_f64).to_bits());
+    }
+
+    #[test]
+    fn optional_columns_write_the_code() {
+        // M8: None becomes the code; present values are written unchanged.
+        let d = parse_gslib(SAMPLE).unwrap();
+        let out = d
+            .with_optional_column(
+                "Score",
+                &[Some(0.5), None, Some(-1.25)],
+                MissingCode::MINUS_99,
+            )
+            .unwrap();
+        assert_eq!(out.names().last().map(String::as_str), Some("Score"));
+        assert_eq!(out.column(3).unwrap(), vec![0.5, -99.0, -1.25]);
+        assert_eq!(
+            out.column(2).unwrap(),
+            d.column(2).unwrap(),
+            "other columns kept"
+        );
+        let text = format_gslib(&out);
+        assert!(text.lines().any(|l| l == "2 3 20 -99"), "written as {text}");
+    }
+
+    #[test]
+    fn optional_columns_reject_ambiguous_or_bad_results() {
+        let d = parse_gslib(SAMPLE).unwrap();
+        // M3: one entry per row.
+        assert!(
+            matches!(
+                d.with_optional_column("v", &[Some(1.0)], MissingCode::MINUS_999),
+                Err(Error::LengthMismatch { .. })
+            ),
+            "wrong length"
+        );
+        // A result equal to the code would read back as missing.
+        assert!(
+            matches!(
+                d.with_optional_column(
+                    "v",
+                    &[None, Some(-999.0), Some(1.0)],
+                    MissingCode::MINUS_999
+                ),
+                Err(Error::InvalidInput { .. })
+            ),
+            "result equals the code"
+        );
+        assert!(
+            d.with_optional_column("v", &[None, Some(-999.0), Some(1.0)], MissingCode::MINUS_99)
+                .is_ok(),
+            "fine with another code"
+        );
+        // A non-finite result is an error naming its row and new column.
+        assert!(
+            matches!(
+                d.with_optional_column(
+                    "v",
+                    &[None, Some(1.0), Some(f64::NAN)],
+                    MissingCode::MINUS_999
+                ),
+                Err(Error::NonFinite {
+                    row: 3,
+                    column: 4,
+                    ..
+                })
+            ),
+            "NaN result"
+        );
+    }
+
+    #[test]
+    fn results_align_with_rows() {
+        // M3: results computed on the present samples go back to their rows.
+        let d = parse_gslib(MIXED).unwrap();
+        let policy = Extraction {
+            nan: OnNan::Missing,
+            infinite: OnInfinite::Missing,
+            ..Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap())
+        };
+        let present = d.samples(0, 1, 1, 2, &policy).unwrap();
+        assert_eq!(present.rows(), [0, 2]);
+        let doubled: Vec<f64> = present.samples().iter().map(|s| 2.0 * s.value()).collect();
+        let aligned = present.align(&doubled).unwrap();
+        assert_eq!(aligned, vec![Some(2.0), None, Some(6.0), None, None, None]);
+        assert_eq!(aligned.len(), d.nrows());
+        assert!(
+            matches!(present.align(&[1.0]), Err(Error::LengthMismatch { .. })),
+            "one result per sample"
+        );
+        let out = d
+            .with_optional_column("2a", &aligned, MissingCode::MINUS_999)
+            .unwrap();
+        assert_eq!(
+            out.column(4).unwrap(),
+            vec![2.0, -999.0, 6.0, -999.0, -999.0, -999.0]
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn optional_columns_roundtrip_through_trimming(
+            raw in prop::collection::vec(
+                prop::option::of(prop::num::f64::NORMAL | prop::num::f64::ZERO),
+                0..30,
+            ),
+        ) {
+            // M3 + M8: write with the code, format, parse, extract with
+            // limits that exclude it: the same rows are missing, and the
+            // present values are bit-identical.
+            let results: Vec<Option<f64>> = raw
+                .into_iter()
+                .map(|v| v.filter(|x| *x > -998.0 && *x < 1.0e21))
+                .collect();
+            let n = results.len();
+            let base = GslibData::new(
+                "t",
+                vec!["i".to_owned()],
+                (0..n).map(|i| f64::from(u32::try_from(i).unwrap())).collect(),
+            )
+            .unwrap();
+            let written = base
+                .with_optional_column("r", &results, MissingCode::MINUS_999)
+                .unwrap();
+            let read = parse_gslib(&format_gslib(&written)).unwrap();
+            let policy = Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap());
+            let back = read.extract(1, &policy).unwrap();
+            prop_assert_eq!(back.len(), n);
+            for (b, r) in back.iter().zip(&results) {
+                prop_assert_eq!(b.map(f64::to_bits), r.map(f64::to_bits));
             }
         }
     }

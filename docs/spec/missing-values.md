@@ -65,6 +65,10 @@ F-009 (GSLIB's conventions per program), F-007, F-008.
 - **M8 Output codes.** Writing a row-aligned result replaces each `None` with
   the configured code; the default per program follows D-023. A written
   file's present values are bit-identical to the computed values.
+- **M8a Unambiguous codes (derived from M8 and `AGENTS.md` precedence 2).**
+  Writing fails if a present result equals the code, or is not finite: the
+  first would read back as missing, the second would fail extraction. The
+  error names the row, so the user can choose another code.
 - **M9 Order of rules.** For each cell: the non-finite policy (M5) first,
   then trimming (M4). A cell is present only if both keep it.
 
@@ -91,7 +95,9 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
      in the error, clamp to the trimmed finite range, no finite values);
      M7 (two variables in one record); M9 (Inf with finite limits under
      `Error`).
-2. **Row-aligned writing.** `GslibData::with_optional_column(name,
+2. **Row-aligned writing** (done: `GslibData::with_optional_column`,
+   `MissingCode`, and `PresentSamples::align` to spread per-sample results
+   back over the rows). `GslibData::with_optional_column(name,
    &[Option<f64>], code)`. Tests: M3 (one entry per row) and M8 (codes;
    present values bit-identical).
 3. **CLI.**
