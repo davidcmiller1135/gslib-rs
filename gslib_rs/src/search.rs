@@ -190,11 +190,63 @@ impl Neighbourhood for BruteForce<'_> {
 /// inside a rotated anisotropic ellipsoid (hypothesis, ROADMAP §6).
 #[derive(Debug, Clone)]
 pub struct SuperBlock {
+    blocks: Blocks,
+    samples: Vec<Sample>,
+}
+
+impl SuperBlock {
+    /// Blocks chosen for `samples`: about four data per block, shaped to the
+    /// data's extent (one block along an axis where all data share a
+    /// coordinate).
+    #[must_use]
+    pub fn new(samples: &[Sample]) -> Self {
+        Self {
+            blocks: Blocks::new(&locations(samples)),
+            samples: samples.to_vec(),
+        }
+    }
+
+    /// Exactly `counts` blocks along x, y and z (each at least 1).
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if a count is zero or above 1024.
+    pub fn with_counts(samples: &[Sample], counts: [usize; 3]) -> Result<Self> {
+        Ok(Self {
+            blocks: Blocks::with_counts(&locations(samples), counts)?,
+            samples: samples.to_vec(),
+        })
+    }
+
+    /// The number of blocks along x, y and z.
+    #[must_use]
+    pub const fn counts(&self) -> [usize; 3] {
+        self.blocks.counts()
+    }
+}
+
+impl Neighbourhood for SuperBlock {
+    fn samples(&self) -> &[Sample] {
+        &self.samples
+    }
+
+    fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
+        self.blocks.candidates(ellipsoid, target)
+    }
+}
+
+fn locations(samples: &[Sample]) -> Vec<Point3> {
+    samples.iter().map(Sample::location).collect()
+}
+
+/// The block grid behind [`SuperBlock`], over bare locations (also used by
+/// the experimental variogram's pair enumeration, D-032).
+#[derive(Debug, Clone)]
+pub(crate) struct Blocks {
     origin: [f64; 3],
     size: [f64; 3],
     counts: [usize; 3],
-    /// The data, by row.
-    samples: Vec<Sample>,
+    /// The locations, by row.
+    locations: Vec<Point3>,
     /// Rows sorted by block; block `b` holds `rows[starts[b]..starts[b + 1]]`.
     rows: Vec<usize>,
     starts: Vec<usize>,
@@ -209,16 +261,16 @@ const DATA_PER_BLOCK: usize = 4;
 /// At most this many blocks along an axis.
 const MAX_BLOCKS_PER_AXIS: usize = 1024;
 
-impl SuperBlock {
-    /// Blocks chosen for `samples`: about four data per block, shaped to the
+impl Blocks {
+    /// Blocks chosen for `points`: about four data per block, shaped to the
     /// data's extent (one block along an axis where all data share a
     /// coordinate).
     #[must_use]
-    pub fn new(samples: &[Sample]) -> Self {
-        let (lo, hi) = extent(samples);
+    pub(crate) fn new(points: &[Point3]) -> Self {
+        let (lo, hi) = extent(points);
         let extents = zip3(hi, lo, |h, l| h - l);
         let active: Vec<f64> = extents.iter().copied().filter(|&e| e > 0.0).collect();
-        let blocks = samples.len().div_euclid(DATA_PER_BLOCK).max(1);
+        let blocks = points.len().div_euclid(DATA_PER_BLOCK).max(1);
         let counts = if active.is_empty() {
             [1; 3]
         } else {
@@ -235,31 +287,30 @@ impl SuperBlock {
                 }
             })
         };
-        Self::build(samples, lo, extents, counts)
+        Self::build(points, lo, extents, counts)
     }
 
     /// Exactly `counts` blocks along x, y and z (each at least 1).
     ///
     /// # Errors
     /// [`Error::InvalidInput`] if a count is zero or above 1024.
-    pub fn with_counts(samples: &[Sample], counts: [usize; 3]) -> Result<Self> {
+    pub(crate) fn with_counts(points: &[Point3], counts: [usize; 3]) -> Result<Self> {
         if counts.iter().any(|&n| n == 0 || n > MAX_BLOCKS_PER_AXIS) {
             return Err(Error::invalid(
                 "super-block counts",
                 format!("each must be 1 to {MAX_BLOCKS_PER_AXIS}, got {counts:?}"),
             ));
         }
-        let (lo, hi) = extent(samples);
-        Ok(Self::build(samples, lo, zip3(hi, lo, |h, l| h - l), counts))
+        let (lo, hi) = extent(points);
+        Ok(Self::build(points, lo, zip3(hi, lo, |h, l| h - l), counts))
     }
 
     /// The number of blocks along x, y and z.
-    #[must_use]
-    pub const fn counts(&self) -> [usize; 3] {
+    pub(crate) const fn counts(&self) -> [usize; 3] {
         self.counts
     }
 
-    fn build(samples: &[Sample], origin: [f64; 3], extents: [f64; 3], counts: [usize; 3]) -> Self {
+    fn build(points: &[Point3], origin: [f64; 3], extents: [f64; 3], counts: [usize; 3]) -> Self {
         let [e0, e1, e2] = extents;
         let [n0, n1, n2] = counts;
         let width = |e: f64, n: usize| if e > 0.0 { e / to_f64(n) } else { 1.0 };
@@ -268,17 +319,17 @@ impl SuperBlock {
             origin,
             size,
             counts,
-            samples: samples.to_vec(),
+            locations: points.to_vec(),
             rows: Vec::new(),
             starts: Vec::new(),
             boxes: Vec::new(),
         };
         let nblocks = counts.iter().product::<usize>();
         let mut keyed: Vec<(usize, usize)> = grid
-            .samples
+            .locations
             .iter()
             .enumerate()
-            .map(|(row, s)| (grid.block_of(coords(s.location())), row))
+            .map(|(row, &p)| (grid.block_of(coords(p)), row))
             .collect();
         keyed.sort_unstable();
         grid.starts = vec![0; nblocks + 1];
@@ -299,10 +350,7 @@ impl SuperBlock {
                 grid.block_rows(b).iter().fold(
                     ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]),
                     |(lo, hi), &row| {
-                        let c = grid
-                            .samples
-                            .get(row)
-                            .map_or([0.0; 3], |s| coords(s.location()));
+                        let c = grid.locations.get(row).map_or([0.0; 3], |&p| coords(p));
                         (zip3(lo, c, f64::min), zip3(hi, c, f64::max))
                     },
                 )
@@ -339,12 +387,10 @@ impl SuperBlock {
     }
 }
 
-impl Neighbourhood for SuperBlock {
-    fn samples(&self) -> &[Sample] {
-        &self.samples
-    }
-
-    fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
+impl Blocks {
+    /// Every location inside `ellipsoid` around `target`, sorted by
+    /// `(squared_distance, row)`: exactly [`BruteForce`]'s result.
+    pub(crate) fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
         let t = coords(target);
         let scale = ellipsoid.smallest_scale();
         let limit = ellipsoid.radius() * ellipsoid.radius();
@@ -369,7 +415,7 @@ impl Neighbourhood for SuperBlock {
                         continue;
                     }
                     for &row in self.block_rows(b) {
-                        let Some(p) = self.samples.get(row).map(Sample::location) else {
+                        let Some(&p) = self.locations.get(row) else {
                             continue;
                         };
                         let q = ellipsoid.squared_distance(p, target);
@@ -399,15 +445,15 @@ fn coords(p: Point3) -> [f64; 3] {
     p.delta(Point3::default())
 }
 
-/// The bounding box of the samples' locations (empty: all zeros).
-fn extent(samples: &[Sample]) -> ([f64; 3], [f64; 3]) {
-    if samples.is_empty() {
+/// The bounding box of the points (empty: all zeros).
+fn extent(points: &[Point3]) -> ([f64; 3], [f64; 3]) {
+    if points.is_empty() {
         return ([0.0; 3], [0.0; 3]);
     }
-    samples.iter().fold(
+    points.iter().fold(
         ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]),
-        |(lo, hi), s| {
-            let c = coords(s.location());
+        |(lo, hi), &p| {
+            let c = coords(p);
             (zip3(lo, c, f64::min), zip3(hi, c, f64::max))
         },
     )

@@ -72,9 +72,10 @@ letting results depend on the number of threads or the hardware.
   case where two targets fail.
 - **P3 Deterministic variogram reduction** (D-031). The blocked pair loop
   is bit-identical for any thread count (P1), and the sequential and
-  parallel paths are bit-identical to each other. Both agree with today's
-  single loop within D-010's direct-formula tolerance, and all `gamv`
-  fixtures still pass. Tests: P1; sequential equals parallel bit for bit; a
+  parallel paths are bit-identical to each other. Both agree with the old
+  single loop within the summation bound (`2·n·ε` relative for a lag with
+  `n` pairs, at least 1e-12), and all `gamv` fixtures still pass at their
+  D-010 tolerances. Tests: P1; sequential equals parallel bit for bit; a
   property test against the old single loop; the harness.
 - **P4 Exact pruning** (D-032). The pruned pair loop counts exactly the same
   pairs in every lag as the unpruned loop, including pairs exactly at the
@@ -110,7 +111,24 @@ feature unification (D-030).
        target order;
      - the `krige` command uses it.
    - Tests: P1 with pools of 1, 2 and 8 threads; P2.
-2. **Exact pair pruning** (D-032).
+2. **Exact pair pruning** (D-032; done).
+   - Result:
+     - `LagScheme::max_distance`; the search's block grid is shared as an
+       internal `Blocks` over bare locations, so `sasim`'s grid nodes use it
+       too;
+     - `PairPlan` holds rows in fixed blocks of 256 with per-block sums,
+       ready for step 3;
+     - the old double loop is kept as a test reference.
+   - Evidence:
+     - pair counts are exact against the double loop (property test, also
+       at 1 000 cases; the cut-off pair; several blocks on a lattice);
+     - `gamv` fixtures unchanged (worst γ 6.3e-16);
+     - the library tests caught all 5 planted bugs.
+   - Timing (release, 20 000 scattered data, GSLIB lags to 5% of the
+     domain): 1.29 s for all pairs, 0.24 s pruned, about 5.4×. Most of the
+     remaining cost is sorting each row's partners by distance (the D-024
+     order that D-032 fixed). A cheaper fixed order, such as block order,
+     would be a numerical change needing a decision.
    - Work: `LagScheme` gains its largest separation; the pair loop finds
      partners through the super-block, in D-031's fixed blocks of rows.
    - Tests: P4 as a property test over random data and both lag schemes

@@ -181,7 +181,7 @@ Once parity is solid:
   - kriging at many targets (done: `parallel::try_map`, used by `krige`);
   - experimental variograms, with a fixed-block deterministic reduction and
     exact pruning of pairs beyond the largest lag through the super-block
-    (O(N²) toward O(N·k));
+    (pruning done: about 5.4× on 20 000 data; parallel blocks next);
   - realizations, with per-realization seeds derived from one master seed
     (RNG spec).
 - **GPU acceleration** (opt-in, evidence first): only the regular O(N²) pair
