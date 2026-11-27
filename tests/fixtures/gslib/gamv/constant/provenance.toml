@@ -6,6 +6,6 @@ compiler_flags = ["-fdefault-real-8", "-fdefault-double-8", "-std=legacy", "-fno
 rewrite_rules_version = 1
 case_sha256 = "aae77ab0e73592445441f83a74ec4bceeb266c662bfef24449caa1622bb9814b"
 recipe_sha256 = "742425cfc23a5bf824a74f6c06d7ecb5b5d79a5eadb1d6ac9f2eecb05619884c"
-recipe_commit = "581f684e2df0a8a2d31dda5463d46093559040dc"
-generated_utc = "2026-11-27T19:51:37Z"
-command_line = ["target/debug/xtask", "oracle", "generate", "--program", "gamv"]
+recipe_commit = "f39a7ac469b67465d3388306c6860a71a6a3087b"
+generated_utc = "2026-11-27T19:53:08Z"
+command_line = ["target/debug/xtask", "oracle", "generate"]
