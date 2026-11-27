@@ -555,3 +555,69 @@ agree within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13).
     loose.
   - The ports are test-only: gslib-rs keeps exact functions (ROADMAP §2).
   - Use this pattern wherever GSLIB uses an approximation.
+
+## Finding F-008: gamv parity, omnidirectional semivariogram (plan step 6, 2026-11-27)
+From `GAMV/GAMV.FOR`, `GAMV/GAMV.INC` and 7 fixtures.
+
+**How `gamv` works** (read from the source):
+- **Lag classes:** `nlag + 2` classes.
+  - Class 1 holds pairs with h ≤ `EPSLON = 1e-20`.
+  - Class `il ≥ 2` holds h with `(il−2)·xlag − xltol ≤ h ≤ (il−2)·xlag +
+    xltol`, inclusive at both ends. Classes overlap if `xltol > xlag/2`, and
+    a pair is then added to every class it falls in (`lagbeg..lagend`).
+  - Pairs with h² > `((nlag + 0.5 − EPSLON)·xlag)²` are skipped.
+  - `xltol ≤ 0` silently becomes `xlag/2`.
+- **Pairs:** the loop is `j = i..nd`, so each datum is also paired with
+  itself (h = 0, class 1).
+- **Directions:** "omnidirectional" means `atol ≥ 90`. The azimuth, dip and
+  bandwidth tests still run (with `PI = 3.14159265`), and each accepted pair
+  is counted in both orderings, so `np` doubles while γ is unchanged.
+- **Output:** γ = ½·mean of (head − tail)²; `dis`, `hm`, `tm` are means over
+  the counted orderings; empty classes print zeros.
+- **Limits:** `MAXLAG = 200`, `MAXDAT = 10000`.
+
+**Results:**
+- All 7 cases (smooth, overlapping lags, 3-D grid, grid with separations on
+  class bounds, duplicates, two data, constant) agree to machine precision:
+  - γ within 1.4e-15 of the data variance;
+  - pair means within 4.3e-15;
+  - distances within 1.0e-13 × xlag.
+- Every pair count is exactly twice gslib-rs's.
+- The zero-distance class matches the exact self-pair relations:
+  - `np = 2(n + m)`;
+  - `γ = γ_ours·m/(n + m)`;
+  - means `(Σv + m·mean_ours)/(n + m)`.
+
+  These hold including `duplicates`, which has m = 5 coincident pairs.
+- GSLIB counts pairs lying exactly on a class bound in both classes,
+  confirming the inclusive bounds.
+
+**Mutation checks:**
+- ignoring overlap: 40 mismatches;
+- an exclusive upper bound **initially survived**, because no fixture had a
+  pair exactly on a bound. The `grid_3d_boundaries` case was added, and the
+  mutant now gives 22 mismatches.
+
+## D-017: Self-pairs and doubled counts in gamv (provisional)
+- Status: decided **provisionally**: chosen during implementation and
+  awaiting the user's confirmation.
+- Topic: harness.md (step 6); `variogram::CentredLags`
+- Question: Should gslib-rs reproduce `gamv`'s self-pairs in the
+  zero-distance class, and its doubled omnidirectional pair counts?
+- Options:
+  1. reproduce both;
+  2. use distinct pairs only and count each pair once, checking GSLIB's
+     numbers through exact relations;
+  3. offer GSLIB's behaviour as an opt-in legacy policy.
+- Decision: **option 2.**
+- Rationale:
+  - Pairing a datum with itself always contributes a zero difference, which
+    dilutes γ in the zero-distance class: a defect, not information
+    (`AGENTS.md`, *Do not treat legacy agreement as proof of correctness*).
+  - Doubled counts are a reporting convention with no effect on γ.
+  - The harness verifies both differences exactly, so parity is
+    demonstrated, not assumed.
+- Consequences: listed in ROADMAP §2. A GSLIB-compatibility mode could
+  re-create either from gslib-rs's output with the relations in F-008. If the
+  user prefers option 1 or 3, only `CentredLags` and the gamv harness test
+  change.

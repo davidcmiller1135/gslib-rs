@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "As smooth, but with xltol > xlag / 2, so lag classes overlap and a pair can count in two of them (GAMV.FOR's lagbeg..lagend)."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 8
+lag_spacing = 10.0
+lag_tolerance = 7.0

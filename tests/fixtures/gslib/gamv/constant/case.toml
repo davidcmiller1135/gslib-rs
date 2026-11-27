@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "Twenty data with one identical value: every gamma is exactly zero."
+inputs = ["constant.dat"]
+
+[parameters]
+data = "constant.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 5
+lag_spacing = 5.0
+lag_tolerance = 2.5

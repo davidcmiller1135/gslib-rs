@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "Five pairs of data at identical locations with different values: the zero-distance class, where GSLIB also counts each datum against itself (F-008)."
+inputs = ["duplicates.dat"]
+
+[parameters]
+data = "duplicates.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 6
+lag_spacing = 5.0
+lag_tolerance = 2.5

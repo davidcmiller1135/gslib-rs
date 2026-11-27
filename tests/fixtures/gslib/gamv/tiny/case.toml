@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "Two data 5 apart: exactly one pair, on a lag centre."
+inputs = ["tiny.dat"]
+
+[parameters]
+data = "tiny.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+nlag = 2
+lag_spacing = 5.0
+lag_tolerance = 2.5

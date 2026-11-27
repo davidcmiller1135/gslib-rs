@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "A regular 6 x 5 x 4 grid in 3-D: many identical separations, including purely vertical pairs, all pooled omnidirectionally."
+inputs = ["grid_3d.dat"]
+
+[parameters]
+data = "grid_3d.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+nlag = 8
+lag_spacing = 1.0
+lag_tolerance = 0.5

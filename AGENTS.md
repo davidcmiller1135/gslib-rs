@@ -164,8 +164,8 @@ Further rules:
   build-time changes are applied to a copy. Answer questions about GSLIB's
   behaviour from this source, citing file and routine. Its licence notice is
   in `NOTICE`.
-- **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel` so
-  far). To add one, write its `case.toml`, commit any recipe changes, then run
+- **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel`,
+  `nscore`, `backtr`, `gamv` so far). To add one, write its `case.toml`, commit any recipe changes, then run
   `cargo xtask oracle generate --program <name>` (needs gfortran); never edit
   generated files by hand; `cargo xtask oracle status` lists fixtures made by
   an older recipe. Synthetic inputs come from

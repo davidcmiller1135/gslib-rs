@@ -154,7 +154,8 @@ step weakens a lint or tolerance.
    - Outcome: tick off the nscore, backtr and gauinv ledger items.
    - Then a decision entry calibrating the 1e-12 default from the evidence
      (D-010).
-6. **gamv.**
+6. **gamv** (done for the omnidirectional semivariogram: 7 fixtures, F-008,
+   D-017).
    - Work: first implement GSLIB-style lag classes (`xlag`/`xltol`) in
      `variogram`, with their own unit tests; then the `.par` generator and an
      output reader.

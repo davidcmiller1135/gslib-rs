@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "Omnidirectional semivariogram of 60 scattered 2-D points with GSLIB's customary tolerance (xltol = xlag / 2): non-overlapping centred lags."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 10
+lag_spacing = 8.0
+lag_tolerance = 4.0

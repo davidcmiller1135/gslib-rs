@@ -34,7 +34,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `cova3` / `setrot` | ✅ | `model::VariogramModel`, `geometry::Anisotropy` | all five structure types and three-angle anisotropy; tested against hand-derived values, not yet against Fortran |
-| `gamv` | 🟡 | `variogram::experimental_variogram` | **directions** (azimuth/dip with tolerances and bandwidths); lag tolerance; the other 9 variogram types (cross, covariance, correlogram, general/pairwise relative, log, madogram, indicator); multiple variables |
+| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008) | **directions** (azimuth/dip with tolerances and bandwidths); trimming limits; sill standardization; the other 9 variogram types (cross, covariance, correlogram, general/pairwise relative, log, madogram, indicator); multiple variables; CLI on GSLIB's lags |
 | `gam` | ⬜ | | variograms of gridded data along grid directions |
 | `varmap` | ⬜ | | variogram maps |
 | `vmodel` | 🟡 | `VariogramModel::gamma` | write model values along directions |
@@ -101,7 +101,9 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Normal CDF (`backtr` tails) | `gcum`: polynomial approximation, error ≤ 7.458e-8, exactly 0 or 1 past \|x\| > 6 (F-007) | `libm::erfc`, ~1 ulp | not planned: extension |
 | Back-transform tails | options 1 (linear), 2 (power), 4 (hyperbolic, upper only); no clamping option | 1 (linear) only, plus `Tail::Clamp` (an extension) | power and hyperbolic planned |
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
-| Lag classes | centres at multiples of `xlag` with tolerance `xltol` | equal classes over `[0, max]` | to be replaced by GSLIB lags with directional `gamv` |
+| Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
+| Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | possible legacy policy; provisional, see D-017 |
+| Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled (γ unaffected) | each pair counted once | n/a (reporting convention); provisional, see D-017 |
 | π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
 | Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
@@ -208,7 +210,9 @@ reference run, and say which.
 - [ ] Search parameter names (`ndmax`, `nodmax`, `radius`): `search.rs`
 - [ ] `sasim` schedule parameters (`t0, redfac, ka, k, num, Omin`) and
   objective normalisation by initial values: `simulation/sasim.rs`
-- [ ] `gamv` lag definition (`xlag`, `xltol`): §2
+- [x] `gamv` lag definition: centres `(il−2)·xlag`, inclusive `±xltol`
+  (overlapping), zero class `h ≤ 1e-20`, cut-off `(nlag + 0.5)·xlag`.
+  `GAMV.FOR`, confirmed by fixtures including exact-boundary pairs. F-008.
 - [ ] Unsolvable kriging systems are skipped and written as `UNEST`: §2
 - [x] Standard-normal reference values in the `transform.rs` tests: agree
   within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13). F-007.
