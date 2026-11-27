@@ -58,14 +58,18 @@ where
         .sum()
 }
 
-/// Simple Kriging:
-/// Builds the n×n semivariance matrix (no Lagrange row),
-/// solves for weights, and returns mean + Σ w_i*(v_i - mean).
+/// Simple Kriging with a known stationary `mean`.
+///
+/// `covariance` is the covariance function C(h), **not** a variogram: simple
+/// kriging has no unbiasedness constraint, so its system must be written in
+/// covariances. For a variogram model with sill `s`, pass `|h| s - gamma(h)`.
+///
+/// Solves C·w = c and returns mean + Σ w_i·(v_i − mean).
 pub fn simple_kriging<F>(
     coords: &[(f64, f64, f64)],
     values: &[f64],
     target: (f64, f64, f64),
-    variogram: F,
+    covariance: F,
     mean: f64,
 ) -> f64
 where
@@ -74,18 +78,18 @@ where
     let n = coords.len();
     assert_eq!(values.len(), n, "coords/values length mismatch");
 
-    // Build the n×n kriging matrix
+    // Build the n×n data-to-data covariance matrix
     let mut mat = DMatrix::zeros(n, n);
     for i in 0..n {
         for j in 0..n {
-            mat[(i, j)] = variogram(distance(coords[i], coords[j]));
+            mat[(i, j)] = covariance(distance(coords[i], coords[j]));
         }
     }
 
-    // Build right‐hand side: variogram between each sample and the target
+    // Right-hand side: covariance between each sample and the target
     let mut rhs = DVector::zeros(n);
     for i in 0..n {
-        rhs[i] = variogram(distance(coords[i], target));
+        rhs[i] = covariance(distance(coords[i], target));
     }
 
     // Solve (no pivoting)
@@ -260,13 +264,44 @@ mod tests {
         assert!((est - 1.5).abs() < EPS);
     }
 
+    /// Exponential covariance with unit sill and practical range 3.
+    fn exp_cov(h: f64) -> f64 {
+        (-h).exp()
+    }
+
     /// Simple kriging with both values equal to the mean returns the mean.
     #[test]
     fn test_simple_kriging_equal_to_mean() {
         let coords = vec![(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)];
         let values = vec![7.0, 7.0];
         let mean = 7.0;
-        let est = simple_kriging(&coords, &values, (0.5, 0.0, 0.0), |h| h, mean);
+        let est = simple_kriging(&coords, &values, (0.5, 0.0, 0.0), exp_cov, mean);
         assert!((est - mean).abs() < EPS);
+    }
+
+    /// SK is an exact interpolator: at a data location it returns the datum.
+    #[test]
+    fn test_simple_kriging_exact_at_data() {
+        let coords = vec![(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)];
+        let values = vec![12.0, 14.0];
+        let est = simple_kriging(&coords, &values, (1.0, 0.0, 0.0), exp_cov, 10.0);
+        assert!((est - 14.0).abs() < 1e-10, "est = {est}");
+    }
+
+    /// Far beyond the correlation range, SK reverts to the known mean.
+    #[test]
+    fn test_simple_kriging_reverts_to_mean_far_away() {
+        let coords = vec![(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)];
+        let values = vec![12.0, 14.0];
+        let est = simple_kriging(&coords, &values, (100.0, 0.0, 0.0), exp_cov, 10.0);
+        assert!((est - 10.0).abs() < 1e-10, "est = {est}");
+    }
+
+    /// One datum: weight is C(h)/C(0), so est = m + C(h)·(v − m) for unit sill.
+    #[test]
+    fn test_simple_kriging_single_datum_weight() {
+        let est = simple_kriging(&[(0.0, 0.0, 0.0)], &[12.0], (1.0, 0.0, 0.0), exp_cov, 10.0);
+        let expected = 10.0 + (-1.0f64).exp() * 2.0;
+        assert!((est - expected).abs() < EPS, "est = {est}, expected = {expected}");
     }
 }
