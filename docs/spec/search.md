@@ -40,13 +40,16 @@ and fast.
   covariance, then increasing anisotropic distance, then the offset's
   linear index. It keeps at most `nodmax` nodes, with GSLIB's `srchnd`
   octant convention.
+- **Oracle** (D-027): `kt3d`'s debug output is a direct oracle. Per
+  estimate, the selected set (exact up to D-024 ties), its order, and the
+  weights (D-010 tolerance) are compared.
 
 ## Open questions (in dependency order)
 
 1. ~~Order of equidistant data~~ (D-024).
 2. ~~Super-block vs brute force~~ (D-025).
 3. ~~Node search in scope~~ (D-026).
-4. Is `kt3d`'s debug output used as a direct oracle for the selected data?
+4. ~~Debug output as oracle~~ (D-027).
 5. (New, from D-026.) Two-part search (`sstrat = 1`): what happens when two
    data map to the same node? GSLIB keeps the closer one and warns, dropping
    the other.

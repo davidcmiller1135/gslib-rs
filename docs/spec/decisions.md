@@ -940,3 +940,31 @@ From `vendor/gslib-2.0/src/`:
     search, and stays with the `sgsim` and RNG specs.
   - The implementation plan gains node-search steps, which come before
     harness step 8 but do not block `kt3d` (step 7).
+
+## D-027: kt3d's debug output is an oracle for the search
+- Status: decided
+- Topic: search.md (and harness.md step 7)
+- Question: Is `kt3d`'s debug output (`idbg = 2`) used as a direct oracle
+  for the selected data?
+- Options: yes, with sets, order and weights; estimates only; set and order
+  only.
+- Decision: **yes.** `kt3d` fixtures write the debug file. Per estimate,
+  the harness checks:
+  - the selected set exactly, applying D-024's tie rule;
+  - the order of the selected data;
+  - the kriging weights, within D-010's tolerance.
+- Rationale: a wrong selection can change an estimate by less than its
+  tolerance (for example, swapping two data with nearly equal weights). A
+  direct check reports "wrong datum at estimate k" instead. Our recipe
+  already widens the `5f12.3` format to full precision (`rewrite.rs`, rule
+  2), so coordinates and values identify each datum exactly.
+- Consequences:
+  - `harness/` gains a parser for `kt3d`'s debug file. A datum is matched by
+    its coordinates and value. Duplicates at one location are an explicit
+    case: they are matched by count, not by identity.
+  - In GSLIB, debug entries are written only for estimates that were
+    solved, so unestimated locations are compared through the estimate
+    file alone.
+  - GSLIB lists data in its own order (D-024). Order is compared exactly
+    only where no two selected data are equidistant; within a tied group
+    the comparison is as a set.
