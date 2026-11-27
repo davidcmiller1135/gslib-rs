@@ -143,6 +143,11 @@ Further rules:
   - `gslib_rs/src/io.rs`: pure `parse_gslib`/`format_gslib`, plus file wrappers;
   - `gslib_rs/src/plot.rs`: behind the `plot` feature;
   - `cli/`: arguments, seeding, files.
+- **Harness (not part of the library):**
+  - `oracle-case/`: fixture schema (`case.toml`, `provenance.toml`),
+    validation, discovery;
+  - `harness/`: tests-only crate checking gslib-rs against the fixtures;
+  - `xtask/`: the reference recipe, e.g. `cargo xtask oracle verify-source`.
 - **Checks** (all run in CI; the toolchain is pinned in `rust-toolchain.toml`):
   ```sh
   cargo fmt --all --check
@@ -151,6 +156,7 @@ Further rules:
   cargo test --workspace
   cargo doc --workspace --no-deps
   cargo deny check
+  cargo xtask oracle verify-source
   ```
 - **GSLIB 2.0 source (the oracle):** `vendor/gslib-2.0/src/`, vendored
   byte-for-byte. **Never modify it**: `MANIFEST.sha256` verifies it, and

@@ -69,8 +69,12 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
   the fixture.
 - **R6 Fixture layout.** `tests/fixtures/gslib/<program>/<case>/` contains
   `case.toml`, the inputs, `params.par`, GSLIB's outputs byte-for-byte, and
-  `provenance.toml` with every field listed in D-009. The harness fails if any
-  field is missing.
+  `provenance.toml` with every field listed in D-009. With vendoring (D-013),
+  the archive hash is replaced by `source_manifest_sha256`, the SHA-256 of
+  `vendor/gslib-2.0/MANIFEST.sha256`. The harness fails if any field is
+  missing, if `case.toml` no longer matches its recorded hash, or if the
+  compiler flags lack `-fdefault-real-8`/`-fdefault-double-8`. Implemented in
+  `oracle-case`.
 - **R7 Deterministic comparison.** Structure (shape, names, missing positions)
   must match exactly. Values: by default, relative 1e-12 for direct formulas
   and k·cond(A)·ε for kriging results (k to be calibrated, D-010). Overrides
@@ -108,8 +112,8 @@ loosening tolerances:
 Each step is one reviewable PR. The checks in `AGENTS.md` must pass, and no
 step weakens a lint or tolerance.
 
-1. **Harness scaffolding.** Add the `oracle-case`, `harness` and `xtask` crates
-   (`publish = false`) and the `cargo xtask` alias.
+1. **Harness scaffolding** (done). Add the `oracle-case`, `harness` and `xtask`
+   crates (`publish = false`) and the `cargo xtask` alias.
    - Schema v1 types and TOML parsing in `oracle-case`.
    - Fixture discovery and provenance validation (R6) in `harness`.
    - Vendored-source verification against `MANIFEST.sha256` in

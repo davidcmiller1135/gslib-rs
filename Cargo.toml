@@ -3,6 +3,9 @@ resolver = "3"
 members = [
     "gslib_rs",
     "cli",
+    "oracle-case",
+    "harness",
+    "xtask",
 ]
 
 [workspace.package]
