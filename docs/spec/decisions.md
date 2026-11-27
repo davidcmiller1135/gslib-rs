@@ -621,3 +621,151 @@ From `GAMV/GAMV.FOR`, `GAMV/GAMV.INC` and 7 fixtures.
   re-create either from gslib-rs's output with the relations in F-008. If the
   user prefers option 1 or 3, only `CentredLags` and the gamv harness test
   change.
+
+## Finding F-009: Missing values in GSLIB 2.0 (survey, 2026-11-27)
+From a grep of every program in `vendor/gslib-2.0/src/` (comparison patterns
+against `tmin`/`tmax`, and `UNEST` parameters), plus F-007 and F-008:
+
+- **Trimming convention:** most programs keep a value when
+  `tmin ≤ v < tmax` (half-open; `.lt.tmin`/`.ge.tmax` reject).
+- **Closed-interval exceptions:** `GAMV.FOR` rejects pairs with `v < tmin`
+  or `v > tmax` (keeping `v = tmax`) and builds indicators with `≤ tmin` /
+  `> tmax`. `SASIM.FOR` has 10 closed tests. `IK3D`, `SISIM_GS` and `BIVPLT`
+  have one each.
+- **"Unestimated" codes per program:**
+  - `UNEST = -999.0`: `kt3d`, `kb2d`, `cokb3d`, `postsim`;
+  - `-99.0`: `sgsim`, `sisim`, `sisim_gs`, `sisim_lm`, `postik`;
+  - `-1.0`: `lusim`, which can collide with real data.
+- **Other programs:**
+  - `nscore` writes a literal `-999.` for trimmed rows (F-007);
+  - `backtr` reads `tmin tmax` but never uses them (F-007);
+  - `gamv` keeps a record if *any* requested variable is in range, then
+    rejects pairs variable by variable (F-008).
+- **gslib-rs today:** `io::GslibData` holds raw `f64`s with no notion of
+  "missing", and `Sample` rejects only non-finite values, so a −999 in a data
+  file is silently treated as a real datum.
+
+## D-018: Where missingness is represented
+- Status: decided
+- Topic: missing-values.md
+- Question: Is `Option` created when parsing, when extracting columns, or
+  inside the algorithms?
+- Options: at extraction; at parse; inside the algorithms.
+- Decision: **at extraction.** `GslibData` stays a lossless picture of the
+  file (raw `f64`; read then write round-trips exactly). Applying an
+  explicit trimming value to a column yields `Vec<Option<f64>>`. Algorithms
+  receive only present data (`Sample` stays always-valid), and results tied
+  to input rows are returned as `Option`.
+- Rationale: confines sentinels and limits to the boundary (`AGENTS.md`,
+  *Missing values are `Option` in memory*), keeps the algorithms simple, and
+  keeps files round-trippable.
+- Consequences:
+  - A trimming type lives in `io`. The only way from a column to samples is
+    through it (or an explicit "no trimming").
+  - Row-aligned outputs (e.g. scores per input row) are `Vec<Option<f64>>`,
+    written back with a code by the writer.
+
+## D-019: The in-range interval
+- Status: decided
+- Topic: missing-values.md
+- Question: Which interval counts as "in range", given GSLIB's mix of
+  half-open and closed tests (F-009)?
+- Options: half-open everywhere; per program as GSLIB; closed everywhere.
+- Decision: **half-open everywhere:** a value is present when
+  `tmin ≤ v < tmax`.
+- Rationale: it is GSLIB's dominant rule (nscore, kt3d, sgsim, …), and one
+  rule means a file means the same data in every program (`AGENTS.md`,
+  *Conventions are domain law, defined once*).
+- Consequences: when `gamv` (multi-variable pair rejection), `sasim`,
+  `ik3d`, `sisim_gs` or `bivplt` is ported, its closed-interval tests are
+  listed as a divergence in ROADMAP §2. A legacy policy is added only if a
+  fixture shows the difference matters.
+
+## Finding F-010: Non-finite values through GSLIB's READ and trimming
+Probe (2026-11-27): a 4-line Fortran program using list-directed
+`read(*,*)` and `NSCORE.FOR`'s trimming test (reject if `v < tmin` or
+`v ≥ tmax`, limits ±1e21), compiled with gfortran 13.3.0
+`-fdefault-real-8`, fed `NaN Infinity -Infinity 1.5`:
+- **Reading:** gfortran reads all three non-finite tokens.
+- **`NaN`:** kept as data, because every comparison with NaN is false; it
+  then propagates through any arithmetic.
+- **`±Infinity`:** trimmed, i.e. treated as missing, but only because they
+  lie outside ±1e21.
+
+## D-020: Non-finite values in data files
+- Status: decided
+- Topic: missing-values.md
+- Question: How are NaN and ±Inf in a data file handled?
+- Options discussed (the user proposed policies rather than a fixed rule):
+  - error at extraction;
+  - treat as missing;
+  - reject at parse;
+  - per-kind policies, with ±Inf treated as tails in rank-based operations or
+    clamped to the column's range.
+- Decision:
+  - **an explicit non-finite policy at extraction**, set separately for NaN
+    and for ±Inf:
+    - NaN: `Error` | `Missing`;
+    - ±Inf: `Error` | `Missing` | `ClampToRange` (replaced by the finite
+      column min/max; opt-in only);
+  - **both default to `Error`**, naming the row and column;
+  - parsing keeps the values (M1, lossless).
+- Rationale:
+  - Explicit failure stays the default (`AGENTS.md`, precedence 2), and
+    every coercion is a named choice the caller makes, so `AGENTS.md` needs
+    no amendment.
+  - GSLIB's own behaviour (F-010) is inconsistent: NaN is kept as data,
+    ±Inf is trimmed by accident of its limits.
+- Consequences:
+  - `ClampToRange` changes the statistics (smaller variance, spikes at the
+    extremes), so its documentation must say so.
+  - Treating ±Inf as tails in *rank-based* operations (e.g. nscore) is
+    deferred to their design.
+  - The CLI gains flags for both policies.
+
+## D-021: CLI default when no trimming limits are given
+- Status: decided
+- Topic: missing-values.md
+- Question: What does the CLI do when no `--tmin`/`--tmax` are given?
+- Options: no limits plus a sentinel guard; require explicit limits; default
+  to GSLIB's customary ±1e21.
+- Decision: **no limits, plus a sentinel guard.** If a column the command
+  uses contains a value exactly −999 or −99, or a value with |v| ≥ 1e21, the
+  command fails and asks for `--tmin`/`--tmax`, or for `--no-trimming` to
+  confirm the values are real.
+- Rationale: it closes today's silent-sentinel bug (F-009) without making
+  every clean file need flags. Explicit failure (`AGENTS.md`, precedence 2).
+- Consequences:
+  - The guard is a CLI convenience only; the library always requires an
+    explicit trimming argument (M2).
+  - `lusim`'s −1 code is deliberately *not* in the list, because −1 is a
+    common real value.
+
+## D-022: Missingness is per cell; coordinates are never trimmed
+- Status: decided (follows from D-018; not asked separately)
+- Topic: missing-values.md
+- Decision: extraction is column-wise, so a value is missing per cell: in a
+  multi-variable record one variable may be missing while another is present
+  (as in `gamv`, F-008). Trimming applies to variables, never to
+  coordinates, as in GSLIB. A non-finite coordinate follows the D-020
+  policies.
+
+## D-023: Codes written for missing results
+- Status: decided
+- Topic: missing-values.md
+- Question: What code does a writer emit for a `None` in a row-aligned
+  output?
+- Options: GSLIB's per-program code except `lusim`; uniform −999; exactly
+  GSLIB's, including `lusim`'s −1.
+- Decision: **every writer takes the code as a setting (`--unest` in the
+  CLI), defaulting to GSLIB's code for that program:**
+  - −999: `kt3d`, `kb2d`, `cokb3d`, `postsim`, and `nscore`'s trimmed rows;
+  - −99: `sgsim`, `sisim*`, `postik`;
+  - `lusim`, exceptionally, defaults to **−999** instead of GSLIB's −1.0.
+- Rationale: outputs drop into existing GSLIB workflows (documented
+  parity). GSLIB's −1 in `lusim` can collide with real data, which would
+  make a missing result look like a measurement (`AGENTS.md`, precedence
+  1).
+- Consequences: the `lusim` default is listed in ROADMAP §2. A file
+  gslib-rs writes is subject to the sentinel guard (D-021) when read back,
+  so reusing an output deliberately requires stating the limits.
