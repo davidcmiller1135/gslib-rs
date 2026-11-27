@@ -167,17 +167,34 @@ The guiding principle is **no ceremony**: structure has to earn its place
   `Schedule` is still checked at use; fix that.
 - **Legacy policies as values.** For example, `OnSingular`, passed explicitly
   and selected by a GSLIB-compatibility mode in the CLI.
+- **Parallelism at the edge.** The core stays sequential and pure per item
+  (one target, one block of pairs, one realization). Parallel maps over
+  those items live in a boundary module behind an opt-in feature, and their
+  output never depends on the thread count (`docs/spec/parallelism.md`,
+  draft).
 
 ## 5. Beyond GSLIB
 
 Once parity is solid:
 
-- **Parallel realizations** (rayon), with per-realization seeds derived from
-  one master seed, so results don't depend on thread count.
+- **Parallel execution** (`docs/spec/parallelism.md`, draft), with output
+  bit-identical for any thread count:
+  - kriging at many targets (searches are already pure and thread-safe);
+  - experimental variograms, with a fixed-block deterministic reduction and
+    exact pruning of pairs beyond the largest lag through the super-block
+    (O(N²) toward O(N·k));
+  - realizations, with per-realization seeds derived from one master seed
+    (RNG spec).
+- **GPU acceleration** (opt-in, evidence first): only the regular O(N²) pair
+  loop is a good fit. Obstacles: slow `f64` on consumer GPUs and none in
+  WebGPU, `unsafe`-based CUDA bindings, non-deterministic atomic reductions,
+  and no GPU CI runners. Each kernel must be checked against the CPU result.
 - **Automatic variogram fitting** (weighted least squares with constraints).
   GSLIB leaves this to the user.
-- **Fast neighbourhoods** (k-d tree, approximate search) and streaming over
-  large grids.
+- **Fast neighbourhoods:** a k-d tree as a third exact `Neighbourhood`, and
+  streaming over large grids. (The exact super-block is done, about 48×
+  faster than brute force on 20 000 data. An *approximate* search would
+  break D-025's exactness, so it could only be a named opt-in.)
 - **Non-stationarity:** locally varying anisotropy and trends.
 - **Multiple-point statistics** (SNESIM-style) and Gaussian-process
   formulations of kriging.
