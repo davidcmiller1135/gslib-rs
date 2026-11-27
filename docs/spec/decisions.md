@@ -345,3 +345,43 @@ Facts read from the archive the user uploaded (`gslib77.zip`):
   - Supersedes the "commit nothing from GSLIB" consequences of D-002 and D-003.
   - The provenance-ledger items (`docs/ROADMAP.md` §6) can now be checked
     against the vendored source.
+
+## Finding F-004: setrot and cova3 checked against the vendored source
+Read from `vendor/gslib-2.0/src/GSLIB/SETROT.FOR`, `GSLIB/COVA3.FOR` and
+`GAMV/GAMV.FOR` (2026-11-27):
+
+- **`setrot` matrix: matches gslib-rs exactly.**
+  - `alpha = (90 - ang1)` (or `450 - ang1` at 270° and above), `beta =
+    -ang2`, `theta = ang3`.
+  - All nine `rotmat` entries match `geometry::Anisotropy::new` term for term.
+  - `afac = 1/max(anis, EPSLON)` with `EPSLON = 1.e-20` (the clamp; ours is
+    an explicit error, as in ROADMAP §2).
+- **Divergence: π.** `DEG2RAD = 3.141592654/180.0` in `setrot`, and `PI =
+  3.14159265` in `cova3` (hole effect). gslib-rs uses the exact value.
+  Relative angle difference is about 1e-10: relevant to exact-stream parity
+  and to the 1e-12 default tolerance (D-010).
+- **Dip sign: negative is downward (z up).**
+  - `GAMV.FOR`: "dip … measured in negative degrees down from horizontal",
+    with `declin = 90 - dip` measured "positive down from vertical (up)", so
+    a direction's z component is `sin(dip)`.
+  - `setrot`'s arithmetic agrees: positive `ang2` tilts the major axis
+    toward +z.
+  - `SETROT.FOR`'s comment "the dip of the ellipsoid measured positive down"
+    contradicts its own code; trust the code.
+- **`cova3` structure types:**
+  - 1 spherical, `1 - hr*(1.5 - .5*hr*hr)` with `hr = h/a`;
+  - 2 exponential, `exp(-3h/a)`;
+  - 4 power, `cmax - cc*h**a` with `PMX = 999.` added to `cmax`, `h` not
+    divided by `a`;
+  - 5 hole effect, `cos(h/a*PI)`.
+
+  All match gslib-rs.
+- **BUG in gslib-rs: type 3, Gaussian.** GSLIB computes
+  `exp(-(3h/a)*(3h/a))`, i.e. exp(−9(h/a)²); gslib-rs had exp(−3(h/a)²). At
+  h = a, GSLIB's Gaussian reaches 1 − e⁻⁹ ≈ 99.99% of the sill, not 95%.
+  Fixed with a regression test.
+- **Divergence: coincidence test.** `cova3` returns `cmax` (the nugget
+  applies only at zero distance) when the **squared anisotropic** distance
+  is below `EPSLON = 1.e-10`, i.e. within about 1e-5 in rotated, scaled
+  units. gslib-rs uses Euclidean distance below 1e-10. Recorded in ROADMAP
+  §2; exact parity needs a policy for it.

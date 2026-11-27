@@ -100,6 +100,8 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Normal quantile | `gauinv` (low-order approximation) | `erfc_inv` (~1e-16) + `libm::erfc` | not planned: extension |
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag` with tolerance `xltol` | equal classes over `[0, max]` | to be replaced by GSLIB lags with directional `gamv` |
+| π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
+| Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
 
 ## 3. Validation strategy
@@ -182,11 +184,13 @@ a reference run. Each is marked `TODO(parity-verify)` in the code. Tick an
 item off only after checking it against the Fortran source or a recorded
 reference run, and say which.
 
-- [ ] `setrot` rotation matrix and angle conventions (azimuth clockwise from
-  north, dip negative downward, plunge): `geometry.rs`
-- [ ] `setrot` clamps anisotropy ratios to `EPSLON`: §2
-- [ ] `cova3` formulas, type numbers 1–5, practical-range convention, power
-  model's ω stored in the range slot, `PMX` value: `model.rs`
+- [x] `setrot` rotation matrix and angle conventions: matches term for term;
+  dip is negative downward per `gamv`'s comment and `setrot`'s arithmetic
+  (`setrot`'s own comment says otherwise). F-004.
+- [x] `setrot` clamps anisotropy ratios to `EPSLON = 1.e-20`. F-004.
+- [x] `cova3` formulas, types 1–5, power ω in the range slot, `PMX = 999.`:
+  all match **except the Gaussian, which was wrong in gslib-rs and is now
+  fixed**. F-004.
 - [ ] `backtr` interior interpolation (linear in score space) and the meaning
   of tail option 1: `transform.rs`
 - [ ] `nscore` tie handling and despiking: §2

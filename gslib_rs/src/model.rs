@@ -5,11 +5,12 @@ use std::f64::consts::PI;
 use crate::error::{Error, Result};
 use crate::geometry::{Angles, Anisotropy, COINCIDENT, Point3, Ranges};
 
-/// The shape of one nested structure. Ranges are *practical* ranges, as in
-/// GSLIB: the exponential and Gaussian models reach 95% of their sill there.
+/// The shape of one nested structure, with GSLIB's practical-range scaling.
+/// At the range `a`, the exponential reaches 1 − e⁻³ ≈ 95% of its sill and
+/// the Gaussian 1 − e⁻⁹ ≈ 99.99%.
 ///
-/// TODO(parity-verify): formulas and type numbers recalled from memory of
-/// `cova3.for`; confirm against the source.
+/// Verified against `vendor/gslib-2.0/src/GSLIB/COVA3.FOR` (F-004 in
+/// `docs/spec/decisions.md`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum Kind {
@@ -17,7 +18,7 @@ pub enum Kind {
     Spherical,
     /// γ = c·(1 − exp(−3h/a)). GSLIB type 2.
     Exponential,
-    /// γ = c·(1 − exp(−3(h/a)²)). GSLIB type 3.
+    /// γ = c·(1 − exp(−(3h/a)²)). GSLIB type 3.
     Gaussian,
     /// γ = c·(h/a)^ω with 0 < ω < 2; no sill. GSLIB type 4.
     ///
@@ -109,7 +110,10 @@ impl Structure {
                 }
             }
             Kind::Exponential => c * -(-3.0 * hr).exp_m1(),
-            Kind::Gaussian => c * -(-3.0 * hr * hr).exp_m1(),
+            Kind::Gaussian => {
+                let s = 3.0 * hr;
+                c * -(-s * s).exp_m1()
+            }
             Kind::Power { exponent } => c * hr.powf(exponent),
             Kind::HoleEffect => c * (1.0 - (PI * hr).cos()),
         }
@@ -209,8 +213,8 @@ impl VariogramModel {
 ///
 /// Simple kriging, cokriging, and the sequential simulations need a
 /// covariance. GSLIB fakes one for the power model by subtracting γ from a
-/// large constant (`PMX`, recalled as 999; TODO(parity-verify)); here that
-/// is a type error instead.
+/// large constant (`PMX = 999.` in `COVA3.FOR`); here that is a type error
+/// instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CovarianceModel {
     model: VariogramModel,
@@ -271,12 +275,28 @@ mod tests {
     }
 
     #[test]
-    fn exponential_and_gaussian_reach_95_percent_at_practical_range() {
-        for kind in [Kind::Exponential, Kind::Gaussian] {
-            let m = single(kind, 1.0, 10.0);
-            let expected = 1.0 - (-3.0_f64).exp();
-            assert_abs_diff_eq!(m.gamma(ORIGIN, at(10.0)), expected, epsilon = EPS);
-        }
+    fn exponential_reaches_95_percent_at_practical_range() {
+        let m = single(Kind::Exponential, 1.0, 10.0);
+        assert_abs_diff_eq!(
+            m.gamma(ORIGIN, at(10.0)),
+            1.0 - (-3.0_f64).exp(),
+            epsilon = EPS
+        );
+    }
+
+    /// Regression: GSLIB's `COVA3.FOR` type 3 is `exp(-(3h/a)*(3h/a))`;
+    /// gslib-rs previously used `exp(-3(h/a)²)` (F-004).
+    #[test]
+    fn gaussian_matches_gslib_cova3() {
+        let m = single(Kind::Gaussian, 1.0, 10.0);
+        assert_abs_diff_eq!(
+            m.gamma(ORIGIN, at(10.0)),
+            1.0 - (-9.0_f64).exp(),
+            epsilon = EPS
+        );
+        let h = 4.0_f64;
+        let expected = 1.0 - (-(3.0 * h / 10.0) * (3.0 * h / 10.0)).exp();
+        assert_abs_diff_eq!(m.gamma(ORIGIN, at(h)), expected, epsilon = EPS);
     }
 
     #[test]
