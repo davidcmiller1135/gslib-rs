@@ -10,7 +10,7 @@ mod backtr {
     use gslib_rs::io::parse_gslib;
     use gslib_rs::transform::{BackTransform, NormalScoreTable, Tail, standard_normal_cdf};
     use harness::compare::{Comparison, DIRECT, Tolerance};
-    use harness::gslib_math::GCUM_MAX_ERROR;
+    use harness::gslib_math::{GCUM_MAX_ERROR, gcum};
     use oracle_case::backtr::{OUTPUT_FILE, Params};
 
     #[test]
@@ -69,6 +69,16 @@ mod backtr {
                         absolute: bound,
                     };
                     cmp.value("tail_value", ours, g, 1.0, tol, at);
+                    // Explanation check: GSLIB's own tail formula with its
+                    // gcum (BACKTR.FOR, POWINT.FOR) must reproduce its output,
+                    // so the deviation above is entirely gcum's.
+                    let explained = if y <= first.1 {
+                        (first.0 - p.zmin).mul_add(gcum(y) / gcum(first.1), p.zmin)
+                    } else {
+                        let (lo, cdf) = (gcum(last.1), gcum(y));
+                        (p.zmax - last.0).mul_add((cdf - lo) / (1.0 - lo), last.0)
+                    };
+                    cmp.value("tail_formula", explained, g, range, DIRECT, at);
                 }
             }
             for (q, w) in cmp.worst() {

@@ -11,8 +11,8 @@
 mod nscore {
     use gslib_rs::io::parse_gslib;
     use gslib_rs::transform::normal_scores;
-    use harness::compare::{Comparison, Tolerance};
-    use harness::gslib_math::GAUINV_MAX_ERROR;
+    use harness::compare::{Comparison, DIRECT, Tolerance};
+    use harness::gslib_math::{GAUINV_MAX_ERROR, gauinv};
     use oracle_case::nscore::{OUTPUT_FILE, Params, TABLE_FILE};
 
     /// Scores: absolute, from `gauinv`'s measured error.
@@ -98,6 +98,29 @@ mod nscore {
                 });
                 cmp.value("table_value", v, row[0], 1.0, DESPIKE, at);
                 cmp.value("table_score", s, row[1], 1.0, SCORE, at);
+            }
+            // Explanation check: GSLIB's own arithmetic (NSCORE.FOR: wtfac =
+            // 1/twt, cp += wtfac*w, p = (cp + oldcp)/2, gauinv(p)) with its
+            // gauinv must reproduce its table scores, so the deviation above
+            // is entirely gauinv's. Skipped where ties make GSLIB's order
+            // random.
+            if !cmp.is_expected_deviation("table_score") {
+                let mut w_sorted: Vec<(f64, f64)> = values
+                    .iter()
+                    .copied()
+                    .zip(weights.clone().unwrap_or_else(|| vec![1.0; values.len()]))
+                    .collect();
+                w_sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let wtfac = 1.0 / w_sorted.iter().map(|x| x.1).sum::<f64>();
+                let (mut cp, mut oldcp) = (0.0, 0.0);
+                for (k, (row, &(_, w))) in table.iter().zip(&w_sorted).enumerate() {
+                    cp += wtfac * w;
+                    let explained = gauinv(f64::midpoint(cp, oldcp));
+                    oldcp = cp;
+                    cmp.value("score_formula", explained, row[1], 1.0, DIRECT, || {
+                        format!("table row {}", k + 1)
+                    });
+                }
             }
 
             for (q, w) in cmp.worst() {

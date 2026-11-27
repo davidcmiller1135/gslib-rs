@@ -147,7 +147,7 @@ step weakens a lint or tolerance.
      dip (including its sign), plunge, and anisotropy ratios.
    - Outcome: tick off the `setrot`/`cova3` items in ROADMAP §6, or fix the
      code.
-5. **nscore / backtr.**
+5. **nscore / backtr** (done: 6 fixtures, F-007, D-016).
    - Work: `.par` generators and a transformation-table reader.
    - Cases: tie-free (exact), weighted, ties (expected deviation), and tails
      (option 1).

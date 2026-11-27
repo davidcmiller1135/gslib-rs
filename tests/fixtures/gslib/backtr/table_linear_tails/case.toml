@@ -1,0 +1,11 @@
+schema = 1
+program = "backtr"
+description = "Back-transform 62 normal scores (from -4.5 to 4.5, plus every table node) through a 25-row table with linear tails to zmin = 0 and zmax = 50: interior interpolation, exact nodes, and both tails."
+inputs = ["normal_scores.dat", "backtr_table.dat"]
+
+[parameters]
+data = "normal_scores.dat"
+variable_column = 4
+table = "backtr_table.dat"
+zmin = 0.0
+zmax = 50.0

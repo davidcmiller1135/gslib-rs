@@ -480,3 +480,78 @@ Gaussian formula makes the vmodel test fail with 63 mismatches.
   failures. The two π cases need explicit, derived overrides, and have them.
 - Consequences: k in k·cond(A)·ε (kriging) is still to be calibrated, in plan
   step 7.
+
+## Finding F-007: nscore and backtr parity (plan step 5, 2026-11-27)
+From `NSCORE/NSCORE.FOR`, `BACKTR/BACKTR.FOR`, `GSLIB/{NSCORE,BACKTR,GAUINV,
+GCUM,POWINT}.FOR`, and 6 fixtures.
+
+**How GSLIB does it:**
+- **`nscore`:**
+  - trims data outside `[tmin, tmax)` (writing −999 for them) and drops
+    weights ≤ 1e-10;
+  - perturbs each datum by `acorni·1e-6` (F-005) and sorts;
+  - assigns `gauinv((cp + oldcp)/2)` with `cp += w/twt`;
+  - the second pass reseeds ACORN identically, so each datum is looked up
+    at exactly its own table node.
+- **`backtr`:**
+  - the interior is `powint(..., 1.0)`, linear in score space;
+  - tail option 1 is linear in **probability** between `(0, zmin)` and
+    `(gcum(y₁), vr₁)` (lower) or `(gcum(yₙ), vrₙ)` and `(1, zmax)` (upper);
+  - the result is clamped to `[zmin, zmax]`;
+  - `tmin`/`tmax` are read but never used.
+- **`gauinv`** is a rational approximation ("Kennedy & Gentle 1980, p. 95",
+  per its own comment); it returns ±1e10 for p < 1e-10 or p > 1 − 1e-10.
+- **`gcum`** is a polynomial approximation to Φ, exactly 0 or 1 for |x| > 6.
+
+**Measured accuracy** (dense grids, against gslib-rs's exact functions; the
+tests in `harness/src/gslib_math.rs` re-derive both):
+- `gauinv`: at most 1.501e-8;
+- `gcum`: at most 7.458e-8 absolute, with relative error in the tails up to
+  1.6e-3 near x = −4.5.
+
+**Results:**
+| Quantity | Worst | Fully explained by |
+|---|---|---|
+| nscore scores (smooth, skewed, weighted) | 1.498e-8 | `gauinv`: GSLIB's own arithmetic with ported `gauinv` reproduces its table to ≤ 1.8e-14 |
+| nscore table values | 9.79e-7 | despiking (< 1e-6, and always ≥ the datum) |
+| backtr interior | 8.9e-18 × range | machine precision |
+| backtr tails | 1.58e-4 absolute | `gcum`: GSLIB's tail formula with ported `gcum` reproduces its output to 1.4e-16 × range |
+
+**Ties:** in the `ties` case, scores are declared expected deviations. The
+order of distinct values and the despiked table values still match.
+
+**Mutation checks:**
+- using the cumulative endpoint instead of the midpoint in
+  `normal_scores`: 384 mismatches;
+- dropping the lower-tail scaling in `BackTransform`: 11 mismatches.
+
+Also verified: the standard-normal constants in the `transform.rs` tests
+agree within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13).
+
+## D-016: Tolerances and explanation checks for nscore/backtr
+- Status: decided
+- Topic: harness.md (R7)
+- Question: How should results that go through GSLIB's approximations
+  (`gauinv`, `gcum`) be compared?
+- Options: loosen a global tolerance; per-quantity bounds derived from the
+  measured approximation error; port the approximations and compare against
+  GSLIB-as-ported.
+- Decision: **both of the last two:**
+  - compare gslib-rs with GSLIB using derived bounds:
+    - scores: absolute `GAUINV_MAX_ERROR` = 2e-8;
+    - table values: absolute 1e-6 (despiking);
+    - backtr interior: 1e-12 × (zmax − zmin);
+    - backtr tails: absolute `span·2ε/(p_edge − ε)` per point, with ε =
+      `GCUM_MAX_ERROR` = 7.5e-8;
+  - **and** run an *explanation check*: GSLIB's own formula, with the
+    ported approximation, must reproduce GSLIB's output at the direct
+    tolerance (1e-12).
+- Rationale: a bound alone shows a deviation is small enough. The
+  explanation check shows it has the stated cause, so a real bug can't hide
+  inside an approximation's tolerance.
+- Consequences:
+  - The bound constants are pinned by tests that fail if they are exceeded,
+    or are more than twice the measured error, so they can't quietly become
+    loose.
+  - The ports are test-only: gslib-rs keeps exact functions (ROADMAP §2).
+  - Use this pattern wherever GSLIB uses an approximation.

@@ -18,8 +18,8 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 |---|---|---|---|
 | file format | 🟡 | `io::parse_gslib` / `format_gslib` | **trimming limits** (`tmin`/`tmax`) and missing values, used by every program; Fortran fixed-format output |
 | `.par` files | ⬜ | (CLI flags) | read GSLIB parameter files so existing workflows run unchanged |
-| `nscore` | 🟡 | `transform::normal_scores` | declustering weights from file; reference distribution option; writing the transformation table; CLI subcommand |
-| `backtr` | 🟡 | `transform::BackTransform` | power (ω ≠ 1) and hyperbolic tails; CLI subcommand |
+| `nscore` | 🟡 | `transform::normal_scores`; parity fixtures (F-007) | trimming limits; reference distribution option; rank output (negative column); random despiking as a legacy policy; writing the transformation table; CLI subcommand |
+| `backtr` | 🟡 | `transform::BackTransform`; parity fixtures (F-007) | power (ω ≠ 1) and hyperbolic tails; CLI subcommand |
 | `declus` | ⬜ | | cell declustering with cell-size scan and origin offsets |
 | `trans` | ⬜ | | histogram identification with control on how far data may move |
 | `rotcoord` | ✅ | `geometry::Rotation2` | CLI subcommand |
@@ -97,7 +97,9 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Anisotropy ratio ≤ 0 | clamped to `EPSLON` | `Error::InvalidInput` | planned: clamp policy |
 | Power model covariance | `PMX − γ` with a large `PMX` | `CovarianceModel` cannot be built from it | planned, if exact parity needs it |
 | Ties in `nscore` | every datum perturbed by ACORN × 1e-6 (seed 69069), so ties break randomly (F-005) | tied values share one score | planned: random despiking with ACORN |
-| Normal quantile | `gauinv` (low-order approximation) | `erfc_inv` (~1e-16) + `libm::erfc` | not planned: extension |
+| Normal quantile | `gauinv`: rational approximation, error ≤ 1.501e-8 (F-007) | `erfc_inv`, ~1e-16 | not planned: extension |
+| Normal CDF (`backtr` tails) | `gcum`: polynomial approximation, error ≤ 7.458e-8, exactly 0 or 1 past \|x\| > 6 (F-007) | `libm::erfc`, ~1 ulp | not planned: extension |
+| Back-transform tails | options 1 (linear), 2 (power), 4 (hyperbolic, upper only); no clamping option | 1 (linear) only, plus `Tail::Clamp` (an extension) | power and hyperbolic planned |
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag` with tolerance `xltol` | equal classes over `[0, max]` | to be replaced by GSLIB lags with directional `gamv` |
 | π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
@@ -192,11 +194,13 @@ reference run, and say which.
 - [x] `cova3` formulas, types 1–5, power ω in the range slot, `PMX = 999.`:
   all match **except the Gaussian, which was wrong in gslib-rs and is now
   fixed**. F-004.
-- [ ] `backtr` interior interpolation (linear in score space) and the meaning
-  of tail option 1: `transform.rs`
+- [x] `backtr` interior interpolation (linear in score space) and the meaning
+  of tail option 1 (linear in probability, via `gcum`): `BACKTR.FOR`,
+  confirmed by fixtures to 1.4e-16. F-007.
 - [x] `nscore` tie handling: random despiking of every datum (`EPSLON =
   1.0e-6`, ACORN seeded 69069), `NSCORE.FOR` lines 31, 142, 179. F-005.
-- [ ] `gauinv` algorithm and accuracy: §2
+- [x] `gauinv` algorithm and accuracy: rational approximation (Kennedy &
+  Gentle 1980, per its own comment), measured error ≤ 1.501e-8. F-007.
 - [~] ACORN as the generator and 69069 as its seed: confirmed in `nscore`
   (F-005); still to check in each simulation program. §2, `cli/src/main.rs`
 - [ ] Grid conventions: `xmn` is the first cell's centre, x-fastest order:
@@ -206,8 +210,8 @@ reference run, and say which.
   objective normalisation by initial values: `simulation/sasim.rs`
 - [ ] `gamv` lag definition (`xlag`, `xltol`): §2
 - [ ] Unsolvable kriging systems are skipped and written as `UNEST`: §2
-- [ ] Standard-normal reference values in the `transform.rs` tests, against an
-  independent high-precision source
+- [x] Standard-normal reference values in the `transform.rs` tests: agree
+  within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13). F-007.
 - [x] GSLIB version and licence terms of the reference source: GSLIB 2.0
   (`VERSION=2.000`), 1996 Stanford notice. Verified from the archive itself
   (F-003, D-013 in `docs/spec/decisions.md`).

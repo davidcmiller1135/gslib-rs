@@ -1,0 +1,12 @@
+                  Parameters for BACKTR
+                  *********************
+
+START OF PARAMETERS:
+normal_scores.dat   \file with data
+4   \column with Gaussian variable
+-1.0e21 1.0e21   \trimming limits
+backtr.out   \file for output
+backtr_table.dat   \file with input transformation table
+0 50   \minimum and maximum data value
+1 1.0   \lower tail option and parameter
+1 1.0   \upper tail option and parameter
