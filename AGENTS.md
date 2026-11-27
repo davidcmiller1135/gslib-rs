@@ -173,3 +173,4 @@ Further rules:
   `xtask/src/data.rs`). `harness/` compares gslib-rs against them
   (`docs/spec/harness.md`).
 - **Roadmap, divergences, provenance ledger:** `docs/ROADMAP.md`.
+- **Plan and handoff (start here in a new session):** `docs/PLAN.md`.
