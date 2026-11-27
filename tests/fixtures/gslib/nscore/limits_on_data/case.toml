@@ -1,0 +1,9 @@
+schema = 1
+program = "nscore"
+description = "Limits exactly equal to two data values (tmin = 0.898917, the 10th smallest; tmax = 3.919411): half-open trimming keeps the datum at tmin and drops the one at tmax (M4, D-019)."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+variable_column = 4
+trimming_limits = [0.898917, 3.919411]

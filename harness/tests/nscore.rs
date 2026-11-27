@@ -9,10 +9,11 @@
 
 #[cfg(test)]
 mod nscore {
-    use gslib_rs::io::parse_gslib;
+    use gslib_rs::io::{Extraction, GslibData, Trimming, parse_gslib};
     use gslib_rs::transform::normal_scores;
     use harness::compare::{Comparison, DIRECT, Tolerance};
     use harness::gslib_math::{GAUINV_MAX_ERROR, gauinv};
+    use oracle_case::Fixture;
     use oracle_case::nscore::{OUTPUT_FILE, Params, TABLE_FILE};
 
     /// Scores: absolute, from `gauinv`'s measured error.
@@ -26,6 +27,143 @@ mod nscore {
         absolute: 1e-6,
     };
 
+    /// Keep the entries of a per-row column whose row is present.
+    fn keep(column: Vec<f64>, present: &[Option<f64>]) -> Vec<f64> {
+        column
+            .into_iter()
+            .zip(present)
+            .filter_map(|(x, k)| k.map(|_| x))
+            .collect()
+    }
+
+    /// The variable per row after trimming (M4): GSLIB keeps
+    /// `tmin <= v < tmax` (`NSCORE.FOR`) and writes -999 for the other rows;
+    /// gslib-rs returns `None`.
+    fn present_values(data: &GslibData, p: &Params) -> Vec<Option<f64>> {
+        let trimming = p
+            .trimming_limits
+            .map_or(Trimming::NONE, |[lo, hi]| Trimming::limits(lo, hi).unwrap());
+        data.extract(
+            usize::try_from(p.variable_column - 1).unwrap(),
+            &Extraction::new(trimming),
+        )
+        .unwrap()
+    }
+
+    /// Compare one fixture; returns its mismatches.
+    fn check(f: &Fixture) -> Vec<String> {
+        let name = f.dir.file_name().unwrap().to_string_lossy().into_owned();
+        let p = Params::from_table(&f.case.parameters).unwrap();
+        let read = |file: &str| std::fs::read_to_string(f.dir.join(file)).unwrap();
+        let data = parse_gslib(&read(&p.data)).unwrap();
+        let present = present_values(&data, &p);
+        let values: Vec<f64> = present.iter().flatten().copied().collect();
+        let weights = (p.weight_column > 0).then(|| {
+            let column = data
+                .column(usize::try_from(p.weight_column - 1).unwrap())
+                .unwrap();
+            keep(column, &present)
+        });
+        let ours = normal_scores(&values, weights.as_deref()).unwrap();
+
+        let out = parse_gslib(&read(OUTPUT_FILE)).unwrap();
+        let table = harness::parse_columns(&read(TABLE_FILE), 2).unwrap();
+        let mut cmp = Comparison::new(&f.case);
+        cmp.structure(
+            out.ncols() == data.ncols() + 1 && out.nrows() == data.nrows(),
+            || {
+                format!(
+                    "output is {}x{}, data {}x{}",
+                    out.nrows(),
+                    out.ncols(),
+                    data.nrows(),
+                    data.ncols()
+                )
+            },
+        );
+        cmp.structure(
+            out.names().last().map(String::as_str) == Some("Normal Score value"),
+            || format!("last column is {:?}", out.names().last()),
+        );
+        cmp.structure(table.len() == values.len(), || {
+            format!("table has {} rows", table.len())
+        });
+        let all_rows = out.column(out.ncols() - 1).unwrap();
+        for (row, (k, &g)) in present.iter().zip(&all_rows).enumerate() {
+            if k.is_none() {
+                cmp.structure(g.to_bits() == (-999.0_f64).to_bits(), || {
+                    format!("row {}: trimmed in gslib-rs, but GSLIB wrote {g}", row + 1)
+                });
+            }
+        }
+        let gslib = keep(all_rows, &present);
+
+        // Scores, datum by datum.
+        for (i, (&o, &g)) in ours.scores.iter().zip(&gslib).enumerate() {
+            cmp.value("score", o, g, 1.0, SCORE, || format!("datum {}", i + 1));
+        }
+        // Distinct values keep their order, whatever happens to ties.
+        for (i, (&vi, &gi)) in values.iter().zip(&gslib).enumerate() {
+            for (j, (&vj, &gj)) in values.iter().zip(&gslib).enumerate() {
+                if vi < vj {
+                    cmp.structure(gi < gj, || {
+                        format!("data {} < {} but scores are not ordered", i + 1, j + 1)
+                    });
+                }
+            }
+        }
+        // The table: GSLIB's perturbed values against the sorted data,
+        // and its scores against ours in the same order.
+        let mut sorted: Vec<(f64, f64)> = values
+            .iter()
+            .copied()
+            .zip(ours.scores.iter().copied())
+            .collect();
+        sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (k, (row, &(v, s))) in table.iter().zip(&sorted).enumerate() {
+            let at = || format!("table row {}", k + 1);
+            cmp.structure(row[0] >= v, || {
+                format!("table row {}: despiking only adds", k + 1)
+            });
+            cmp.value("table_value", v, row[0], 1.0, DESPIKE, at);
+            cmp.value("table_score", s, row[1], 1.0, SCORE, at);
+        }
+        // Explanation check: GSLIB's own arithmetic (NSCORE.FOR: wtfac =
+        // 1/twt, cp += wtfac*w, p = (cp + oldcp)/2, gauinv(p)) with its
+        // gauinv must reproduce its table scores, so the deviation above
+        // is entirely gauinv's. Skipped where ties make GSLIB's order
+        // random.
+        if !cmp.is_expected_deviation("table_score") {
+            let mut w_sorted: Vec<(f64, f64)> = values
+                .iter()
+                .copied()
+                .zip(weights.unwrap_or_else(|| vec![1.0; values.len()]))
+                .collect();
+            w_sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let wtfac = 1.0 / w_sorted.iter().map(|x| x.1).sum::<f64>();
+            let (mut cp, mut oldcp) = (0.0, 0.0);
+            for (k, (row, &(_, w))) in table.iter().zip(&w_sorted).enumerate() {
+                cp += wtfac * w;
+                let explained = gauinv(f64::midpoint(cp, oldcp));
+                oldcp = cp;
+                cmp.value("score_formula", explained, row[1], 1.0, DIRECT, || {
+                    format!("table row {}", k + 1)
+                });
+            }
+        }
+
+        for (q, w) in cmp.worst() {
+            println!(
+                "{name}: worst {q} |Δ|/scale = {:.3e} at {}",
+                w.scaled_error, w.location
+            );
+        }
+        cmp.failures()
+            .iter()
+            .map(|m| format!("{name}: {m}"))
+            .collect()
+    }
+
     #[test]
     fn normal_scores_match_gslib() {
         let fixtures: Vec<_> = oracle_case::discover(&harness::fixture_root())
@@ -34,103 +172,7 @@ mod nscore {
             .filter(|f| f.case.program == "nscore")
             .collect();
         assert!(!fixtures.is_empty(), "no nscore fixtures found");
-        let mut failures = Vec::new();
-        for f in &fixtures {
-            let name = f.dir.file_name().unwrap().to_string_lossy().into_owned();
-            let p = Params::from_table(&f.case.parameters).unwrap();
-            let read = |file: &str| std::fs::read_to_string(f.dir.join(file)).unwrap();
-            let data = parse_gslib(&read(&p.data)).unwrap();
-            let col = |c: u32| data.column(usize::try_from(c - 1).unwrap()).unwrap();
-            let values = col(p.variable_column);
-            let weights = (p.weight_column > 0).then(|| col(p.weight_column));
-            let ours = normal_scores(&values, weights.as_deref()).unwrap();
-
-            let out = parse_gslib(&read(OUTPUT_FILE)).unwrap();
-            let table = harness::parse_columns(&read(TABLE_FILE), 2).unwrap();
-            let mut cmp = Comparison::new(&f.case);
-            cmp.structure(
-                out.ncols() == data.ncols() + 1 && out.nrows() == data.nrows(),
-                || {
-                    format!(
-                        "output is {}x{}, data {}x{}",
-                        out.nrows(),
-                        out.ncols(),
-                        data.nrows(),
-                        data.ncols()
-                    )
-                },
-            );
-            cmp.structure(
-                out.names().last().map(String::as_str) == Some("Normal Score value"),
-                || format!("last column is {:?}", out.names().last()),
-            );
-            cmp.structure(table.len() == values.len(), || {
-                format!("table has {} rows", table.len())
-            });
-            let gslib = out.column(out.ncols() - 1).unwrap();
-
-            // Scores, datum by datum.
-            for (i, (&o, &g)) in ours.scores.iter().zip(&gslib).enumerate() {
-                cmp.value("score", o, g, 1.0, SCORE, || format!("datum {}", i + 1));
-            }
-            // Distinct values keep their order, whatever happens to ties.
-            for (i, (&vi, &gi)) in values.iter().zip(&gslib).enumerate() {
-                for (j, (&vj, &gj)) in values.iter().zip(&gslib).enumerate() {
-                    if vi < vj {
-                        cmp.structure(gi < gj, || {
-                            format!("data {} < {} but scores are not ordered", i + 1, j + 1)
-                        });
-                    }
-                }
-            }
-            // The table: GSLIB's perturbed values against the sorted data,
-            // and its scores against ours in the same order.
-            let mut sorted: Vec<(f64, f64)> = values
-                .iter()
-                .copied()
-                .zip(ours.scores.iter().copied())
-                .collect();
-            sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
-            for (k, (row, &(v, s))) in table.iter().zip(&sorted).enumerate() {
-                let at = || format!("table row {}", k + 1);
-                cmp.structure(row[0] >= v, || {
-                    format!("table row {}: despiking only adds", k + 1)
-                });
-                cmp.value("table_value", v, row[0], 1.0, DESPIKE, at);
-                cmp.value("table_score", s, row[1], 1.0, SCORE, at);
-            }
-            // Explanation check: GSLIB's own arithmetic (NSCORE.FOR: wtfac =
-            // 1/twt, cp += wtfac*w, p = (cp + oldcp)/2, gauinv(p)) with its
-            // gauinv must reproduce its table scores, so the deviation above
-            // is entirely gauinv's. Skipped where ties make GSLIB's order
-            // random.
-            if !cmp.is_expected_deviation("table_score") {
-                let mut w_sorted: Vec<(f64, f64)> = values
-                    .iter()
-                    .copied()
-                    .zip(weights.clone().unwrap_or_else(|| vec![1.0; values.len()]))
-                    .collect();
-                w_sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
-                let wtfac = 1.0 / w_sorted.iter().map(|x| x.1).sum::<f64>();
-                let (mut cp, mut oldcp) = (0.0, 0.0);
-                for (k, (row, &(_, w))) in table.iter().zip(&w_sorted).enumerate() {
-                    cp += wtfac * w;
-                    let explained = gauinv(f64::midpoint(cp, oldcp));
-                    oldcp = cp;
-                    cmp.value("score_formula", explained, row[1], 1.0, DIRECT, || {
-                        format!("table row {}", k + 1)
-                    });
-                }
-            }
-
-            for (q, w) in cmp.worst() {
-                println!(
-                    "{name}: worst {q} |Δ|/scale = {:.3e} at {}",
-                    w.scaled_error, w.location
-                );
-            }
-            failures.extend(cmp.failures().iter().map(|m| format!("{name}: {m}")));
-        }
+        let failures: Vec<String> = fixtures.iter().flat_map(check).collect();
         assert!(
             failures.is_empty(),
             "{} mismatches:\n{}",

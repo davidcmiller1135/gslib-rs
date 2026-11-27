@@ -13,8 +13,8 @@ and findings: `docs/spec/decisions.md`.
   including the fixture parity tests, plus `cargo xtask oracle
   verify-source`, `cargo xtask gen-data --check` and `cargo xtask oracle
   status`.
-- **Fixtures:** 21 under `tests/fixtures/gslib/` (vmodel 8, nscore 5,
-  backtr 1, gamv 7). All were made by the current recipe, and regenerating
+- **Fixtures:** 25 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
+  backtr 1, gamv 9). All were made by the current recipe, and regenerating
   them gives byte-identical GSLIB outputs.
 - **Specs:**
 
@@ -118,7 +118,7 @@ and acceptance tests named in it.
 | B1 | **Done.** Extraction API: `Trimming`, `NonFinite`, `GslibData::extract`, `samples` with row indices | `missing-values.md` step 1 (M1, M4, M5, M7, M9) | A2 |
 | B2 | **Done.** Row-aligned writing: `with_optional_column` | step 2 (M3, M8) | B1 |
 | B3 | **Done** (`--unest` deferred to the first row-aligned output). CLI flags and the sentinel guard | step 3 (M6) | B1, B2 |
-| B4 | Parity fixtures with trimming (`nscore`, `gamv`, a limit equal to a datum) | step 4 | B1 |
+| B4 | **Done** (F-011). Parity fixtures with trimming (`nscore`, `gamv`, a limit equal to a datum) | step 4 | B1 |
 
 ### Phase C: finish the harness plan
 

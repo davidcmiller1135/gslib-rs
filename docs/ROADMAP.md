@@ -18,7 +18,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 |---|---|---|---|
 | file format | 🟡 | `io::parse_gslib` / `format_gslib`; trimming and non-finite policies on extraction (`io::Extraction`); missing results written with a code (`io::MissingCode`) | CLI trimming flags and sentinel guard; Fortran fixed-format output |
 | `.par` files | ⬜ | (CLI flags) | read GSLIB parameter files so existing workflows run unchanged |
-| `nscore` | 🟡 | `transform::normal_scores`; parity fixtures (F-007) | trimming limits; reference distribution option; rank output (negative column); random despiking as a legacy policy; writing the transformation table; CLI subcommand |
+| `nscore` | 🟡 | `transform::normal_scores`; parity fixtures (F-007), with trimming (F-011) | reference distribution option; rank output (negative column); random despiking as a legacy policy; writing the transformation table; CLI subcommand |
 | `backtr` | 🟡 | `transform::BackTransform`; parity fixtures (F-007) | power (ω ≠ 1) and hyperbolic tails; CLI subcommand |
 | `declus` | ⬜ | | cell declustering with cell-size scan and origin offsets |
 | `trans` | ⬜ | | histogram identification with control on how far data may move |
@@ -34,7 +34,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `cova3` / `setrot` | ✅ | `model::VariogramModel`, `geometry::Anisotropy` | all five structure types and three-angle anisotropy; tested against hand-derived values, not yet against Fortran |
-| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008) | **directions** (azimuth/dip with tolerances and bandwidths); trimming limits; sill standardization; the other 9 variogram types (cross, covariance, correlogram, general/pairwise relative, log, madogram, indicator); multiple variables; CLI on GSLIB's lags |
+| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008), with trimming (F-011) | **directions** (azimuth/dip with tolerances and bandwidths); sill standardization; the other 9 variogram types (cross, covariance, correlogram, general/pairwise relative, log, madogram, indicator); multiple variables; CLI on GSLIB's lags |
 | `gam` | ⬜ | | variograms of gridded data along grid directions |
 | `varmap` | ⬜ | | variogram maps |
 | `vmodel` | 🟡 | `VariogramModel::gamma` | write model values along directions |
@@ -103,7 +103,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
 | Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
-| Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection, `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
+| Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
 | `lusim` unestimated code | −1.0 (collides with real data) | −999 by default, configurable (D-023) | `--unest -1` |
 | Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled (γ unaffected) | each pair counted once | n/a (reporting convention); D-017 |

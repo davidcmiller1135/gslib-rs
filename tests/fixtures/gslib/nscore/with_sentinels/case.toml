@@ -1,0 +1,9 @@
+schema = 1
+program = "nscore"
+description = "40 values, every fifth -999, trimmed with tmin = -998: GSLIB writes -999 for the trimmed rows, gslib-rs returns None, and the present rows' scores match."
+inputs = ["with_sentinels.dat"]
+
+[parameters]
+data = "with_sentinels.dat"
+variable_column = 4
+trimming_limits = [-998.0, 1.0e21]

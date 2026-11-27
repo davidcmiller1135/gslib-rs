@@ -1,0 +1,13 @@
+schema = 1
+program = "gamv"
+description = "Limits exactly equal to two data values (tmin = 0.898917, tmax = 3.919411): with one variable GSLIB keeps a record iff tmin <= v < tmax when reading (F-011), so the datum at tmin pairs and the one at tmax does not."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 10
+lag_spacing = 8.0
+lag_tolerance = 4.0
+trimming_limits = [0.898917, 3.919411]

@@ -769,3 +769,32 @@ Probe (2026-11-27): a 4-line Fortran program using list-directed
 - Consequences: the `lusim` default is listed in ROADMAP §2. A file
   gslib-rs writes is subject to the sentinel guard (D-021) when read back,
   so reusing an output deliberately requires stating the limits.
+
+## Finding F-011: Trimming parity for nscore and gamv (2026-11-27)
+From `vendor/gslib-2.0/src/` and four fixtures (missing-values plan step 4):
+
+- **`nscore`** keeps `tmin ≤ v < tmax` both when building the table
+  (`NSCORE.FOR` line 164) and when transforming each record (line 262),
+  and writes `-999.` for the other rows.
+- **`gamv` with one variable is half-open too.** `readdata` keeps a record
+  only if some requested variable satisfies `tmin ≤ v < tmax` (lines
+  254–259). The closed pair test (`v < tmin` or `v > tmax`, lines 622–625)
+  therefore rejects nothing more with one variable. F-009's closed-interval
+  note for `gamv` matters only with several variables (cross variograms), where a record
+  kept for one variable can carry an out-of-range value of another.
+- **Fixtures:**
+  - `nscore/with_sentinels`, `gamv/with_sentinels`: 40 values, 8 of them
+    −999, with `tmin = −998`;
+  - `nscore/limits_on_data`, `gamv/limits_on_data`: limits exactly equal to
+    two data values.
+
+  GSLIB keeps the datum at `tmin` (in `nscore`, it gets the lowest score)
+  and drops the one at `tmax` (written as −999). gslib-rs's `Extraction`
+  agrees:
+  - `nscore`: trimmed rows match row for row; present scores agree within
+    1.494e-8 (gauinv, D-016);
+  - `gamv`: γ, distances and means agree within 1.3e-15.
+- **Mutation checks:** an inclusive `tmax` and an exclusive `tmin` each
+  give 48 mismatches; ignoring the limits gives 101.
+- **Regeneration:** the 21 earlier fixtures, regenerated with the new
+  recipe, kept byte-identical GSLIB outputs.

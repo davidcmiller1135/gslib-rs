@@ -117,7 +117,7 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
    - Integration tests on the `with_sentinels` suite: fails without flags,
      names the column and row; succeeds with `--tmin -998`; writes −999 for
      trimmed rows where a row-aligned output exists.
-4. **Parity fixtures with trimming.**
+4. **Parity fixtures with trimming** (done: four fixtures, F-011).
    - Work: `oracle-case` `nscore` and `gamv` parameters gain optional
      trimming limits (a recipe change, so regenerate).
    - Cases:

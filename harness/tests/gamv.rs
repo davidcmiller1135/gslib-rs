@@ -13,7 +13,7 @@
 #[cfg(test)]
 mod gamv {
     use gslib_rs::geometry::Point3;
-    use gslib_rs::io::parse_gslib;
+    use gslib_rs::io::{Extraction, Trimming, parse_gslib};
     use gslib_rs::sample::Sample;
     use gslib_rs::variogram::{CentredLags, Lag, experimental_variogram};
     use harness::compare::{Comparison, DIRECT};
@@ -51,7 +51,10 @@ mod gamv {
         }
     }
 
-    /// The fixture's samples (column 0 means "coordinate is 0", as in GSLIB).
+    /// The fixture's samples whose values are present (column 0 means
+    /// "coordinate is 0", as in GSLIB). With one variable GSLIB keeps a
+    /// record iff `tmin <= v < tmax` (`GAMV.FOR`, `readdata`; F-011), which
+    /// is gslib-rs's trimming.
     fn samples(f: &Fixture, p: &Params) -> Vec<Sample> {
         let data = parse_gslib(&std::fs::read_to_string(f.dir.join(&p.data)).unwrap()).unwrap();
         let column = |c: u32| {
@@ -62,17 +65,23 @@ mod gamv {
             }
         };
         let [cx, cy, cz] = p.coordinate_columns;
-        let (xs, ys, zs, vs) = (
-            column(cx),
-            column(cy),
-            column(cz),
-            column(p.variable_column),
-        );
+        let trimming = p
+            .trimming_limits
+            .map_or(Trimming::NONE, |[lo, hi]| Trimming::limits(lo, hi).unwrap());
+        let vs = data
+            .extract(
+                usize::try_from(p.variable_column - 1).unwrap(),
+                &Extraction::new(trimming),
+            )
+            .unwrap();
+        let (xs, ys, zs) = (column(cx), column(cy), column(cz));
         xs.iter()
             .zip(&ys)
             .zip(&zs)
             .zip(&vs)
-            .map(|(((&x, &y), &z), &v)| Sample::new(Point3::new(x, y, z), v).unwrap())
+            .filter_map(|(((&x, &y), &z), v)| {
+                v.map(|v| Sample::new(Point3::new(x, y, z), v).unwrap())
+            })
             .collect()
     }
 
