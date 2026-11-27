@@ -62,6 +62,9 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
 - **R3 Reproducible fixtures.** Re-running the recipe with the same pinned
   inputs reproduces the committed fixtures byte-for-byte, or the difference is
   explained in the provenance record.
+  *Evidence:* after the step 3 recipe change, regenerating all 8 vmodel
+  fixtures reproduced every `vmodel.var` and `params.par` byte-for-byte;
+  only `provenance.toml` changed (recipe hash, commit, time).
 - **R4 Synthetic suites.** A committed generator script, seeded, produces each
   synthetic input and a note saying what behaviour it targets.
 - **R5 Case files.** Each reference case is one versioned TOML file. The
