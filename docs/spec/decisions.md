@@ -23,7 +23,8 @@ Decisions made while specifying gslib-rs, newest last. Format and process:
 - Options: n/a until the site has been read.
 - Decision: none yet. This session's network policy blocks www.gslib.com (the
   proxy returns 403), and the user declined to change the environment for
-  now.
+  now. Update: the archive's notices are recorded in F-002 and conflict with
+  the "MIT" description; the user's decision is pending.
 - Rationale: these are facts about the download, so they must not be answered
   from memory.
 - Consequences: until resolved, assume **nothing from GSLIB may be committed**
@@ -253,3 +254,34 @@ its only commit), not from memory:
   each step adds one new source of difference.
 - Consequences: see *Expected deviations* in harness.md for how known
   divergences (lag classes, ties, search) are handled in these cases.
+
+## Finding F-002: The provided GSLIB source archive (inspected 2026-11-27)
+Facts read from the archive the user uploaded (`gslib90sc.zip`). Nothing from
+it has been committed or built.
+- **SHA-256:**
+  `e2e9e5090ce8cd9a66c3dd1df586511598ac957d56f84d543bfc5701154b5845`
+  (353,869 bytes, 92 entries).
+- **Contents:** GSLIB90 Fortran source. 53 program files (`kt3d.for`,
+  `sgsim.for`, …, some with `.inc`) and 37 library routines in `gslib/`
+  (`cova3.for`, `setrot.for`, `acorni.for`, `gauinv.for`, `ksol.for`, …).
+  Entry dates run from 1999-11-01 to 2009-02-18, mostly 2003-11-18.
+- **`copyright.txt` contains two notices, and no MIT licence appears
+  anywhere in the archive:**
+  - Statios Software and Services, 2003: "Compiled programs based on this
+    code may be redistributed without restriction; however, this code is for
+    one developer only. Each developer or user of this source code must
+    purchase a separate copy from Statios."
+  - Stanford University, 1996: "Everyone is granted permission to copy,
+    modify and redistribute the programs in GSLIB, but only under the
+    condition that this notice and the above copyright notice remain intact."
+- **Per file:** all 53 program files carry both notices in their headers. The
+  `gslib/` routines carry neither, so presumably `copyright.txt` covers them.
+- **Version:** this is the 2003 Statios GSLIB90 revision, not the 1998 2nd
+  edition (Fortran 77) that the roadmap names as the parity target. Their
+  behaviour may differ.
+- The user described the archive as MIT-licensed. That conflicts with the
+  archive's own notices.
+- **Outcome:** this archive is **not used**. The extracted copy was deleted
+  and nothing from it was read beyond the notices and file list. The user has
+  the Fortran 77 (2nd edition) source and will provide it for the same checks
+  (D-002).
