@@ -798,3 +798,52 @@ From `vendor/gslib-2.0/src/` and four fixtures (missing-values plan step 4):
   give 48 mismatches; ignoring the limits gives 101.
 - **Regeneration:** the 21 earlier fixtures, regenerated with the new
   recipe, kept byte-identical GSLIB outputs.
+
+## Finding F-012: GSLIB 2.0's search neighbourhood (survey, 2026-11-27)
+From `vendor/gslib-2.0/src/`:
+
+- **Metric:** `sqdist` (`GSLIB/SQDIST.FOR`) is the squared distance after
+  the search rotation and scaling of `setrot`, built from the search's own
+  `radius, radius1, radius2` and `sang1..3`. These are independent of the
+  variogram model's anisotropy (`KT3D.FOR` lines 179–187 and 475; `SGSIM.FOR`
+  lines 196–204 and 756). A datum is within the search iff `hsqd ≤ radsqd`
+  (`SRCHSUPR.FOR`).
+- **Order:** candidates are sorted by `hsqd` with `sortem`, a quickersort
+  (ACM algorithm 271), which is not stable. Candidates arrive in super-block
+  order (`setsupr` re-sorts the data by super-block). Equidistant data
+  therefore come out in an order fixed by the super-block grid and the
+  quicksort, not by the input order.
+- **Octants** (`noct > 0`): applied to the sorted candidates *before* any
+  `ndmax` cut. At most `noct` per octant are kept, and the scan stops at
+  `8·noct`. A datum's octant follows the signs of `(dx, dy, dz)` = datum −
+  target, with boundary rules `dx ≤ 0 ∧ dy > 0`, `dx > 0 ∧ dy ≥ 0`,
+  `dx < 0 ∧ dy ≤ 0`, else, split by `dz < 0`. `sgsim`'s node search
+  (`srchnd`) uses target − node instead, so the two disagree on
+  which octant a point exactly on a boundary falls into.
+- **Truncation and minimum:**
+  - `kt3d` keeps the first `ndmax` accepted candidates. In cross-validation
+    it skips data within `EPSLON` (L1) of the target. With fewer than
+    `ndmin`, or no more than the number of drift terms, it writes `UNEST`
+    (lines 680–715).
+  - `sgsim` with `sstrat = 0` skips the node when `nclose < ndmin`, leaving
+    it unsimulated, then truncates to `ndmax` (lines 920–928).
+- **`sgsim`'s previously simulated nodes** come from a separate "spiral"
+  search (`ctable`, `srchnd`):
+  - grid offsets within the search ellipsoid are ordered by decreasing
+    covariance, with ties broken by anisotropic distance (`TINY·hsqd`);
+  - the first `nodmax` simulated nodes found are kept, optionally limited
+    per octant.
+  
+  With `sstrat = 1`, data are first assigned to their nearest nodes and only
+  nodes are searched.
+- **Super-blocks** (`picksup`): a super-block is searched if the smallest
+  `sqdist` over a 3×3×3 lattice of the difference box (its corners, edge
+  midpoints, face centres and centre) is within the radius. Under a rotated
+  anisotropic metric the true minimum can lie elsewhere on a face. The probe
+  `docs/spec/probes/picksup.py` finds offsets where the true minimum distance
+  is 21.2 but the lattice minimum is 25.6, against a radius of 25 (azimuth
+  20°, ratio 0.2, blocks of 10). **Hypothesis, `TODO(parity-verify)`:** GSLIB
+  can miss data inside the search ellipsoid; a fixture must confirm it.
+- **Debug output as an oracle:** `kt3d` with `idbg ≥ 2` writes, per
+  estimate, the data used, in order, with their weights (`5f12.3`, lines
+  993–1006).
