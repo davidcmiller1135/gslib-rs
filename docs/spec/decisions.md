@@ -1054,3 +1054,29 @@ From `vendor/gslib-2.0/src/`:
     covers the build without it.
   - The sequential tests of each algorithm must still run without the
     feature.
+
+## D-031: Variogram sums use fixed blocks combined in a fixed order
+- Status: decided
+- Topic: parallelism.md
+- Question: How does the parallel experimental variogram reduce its sums so
+  the result does not depend on the thread count?
+- Options: fixed blocks combined in a fixed order; exact (order-independent)
+  accumulation; keep the variogram sequential.
+- Decision: **fixed blocks, fixed order.** Pairs are grouped into blocks
+  whose boundaries are a constant of the algorithm, never derived from the
+  thread count. Each block accumulates its partial sums sequentially, and the
+  partial sums are combined in block order. **The sequential path uses the
+  same blocks**, so sequential and parallel results are bit-identical.
+- Rationale: precedence 1 at little cost. Exact accumulation would also give
+  order independence, but is several times slower per addition and more
+  code to verify, for a guarantee (independence from the blocking itself)
+  that the fixed constant already provides.
+- Consequences:
+  - The block layout is part of the numerical definition: changing it is a
+    numerical change, recorded and checked against the `gamv` fixtures.
+  - Results may differ from today's single loop in the last bits. They must
+    stay within the `gamv` fixtures' D-010 tolerances (a direct formula,
+    1e-12), which the harness checks.
+  - With pruning (question 4), a block is a set of rows (first data) with
+    their partners found through the super-block, enumerated in a fixed
+    order.

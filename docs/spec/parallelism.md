@@ -46,6 +46,10 @@ letting results depend on the number of threads or the hardware.
 - **Location** (D-030): `gslib_rs::parallel` behind an opt-in `parallel`
   feature, mapping over the core's pure per-item functions; the CLI enables
   it.
+- **Variogram reduction** (D-031): pairs are grouped into blocks fixed by
+  the algorithm, not the thread count; each block sums sequentially and the
+  partial sums are combined in block order. The sequential path uses the
+  same blocks, so both agree bit for bit.
 
 ## Open questions (with recommendations)
 
@@ -59,7 +63,7 @@ letting results depend on the number of threads or the hardware.
      blocks. The core stays sequential and dependency-free.
    - Alternative: parallel loops only in `cli/`, so library users wire their
      own.
-3. **Deterministic reduction for experimental variograms.**
+3. ~~Deterministic reduction~~ (D-031). Was: **Deterministic reduction for experimental variograms.**
    - *Recommended:* split the pairs into fixed blocks of rows whose size
      does not depend on the thread count. Each block accumulates its own
      partial sums sequentially, and the partial sums are combined in block
@@ -103,10 +107,12 @@ letting results depend on the number of threads or the hardware.
   bit-identically what the sequential loop returns, including errors: the
   first error in *target order*, not the first to occur. Tests: P1, plus a
   case where two targets fail.
-- **P3 Deterministic variogram reduction.** The blocked pair loop is
-  bit-identical for any thread count (P1). It agrees with the sequential
-  loop within D-010's direct-formula tolerance, and all `gamv` fixtures still
-  pass. Tests: P1; a property test against the sequential loop; the harness.
+- **P3 Deterministic variogram reduction** (D-031). The blocked pair loop
+  is bit-identical for any thread count (P1), and the sequential and
+  parallel paths are bit-identical to each other. Both agree with today's
+  single loop within D-010's direct-formula tolerance, and all `gamv`
+  fixtures still pass. Tests: P1; sequential equals parallel bit for bit; a
+  property test against the old single loop; the harness.
 - **P4 Exact pruning.** The pruned pair loop counts exactly the same pairs in
   every lag as the unpruned loop. Tests: a property test of pair counts on
   random data and lag schemes, including the zero-distance class and
