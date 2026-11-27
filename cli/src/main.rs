@@ -113,6 +113,9 @@ fn coords_of(ds: &GslibData) -> Coords {
 /// Read a data file with columns x, y, z, value.
 fn read_data(path: &Path) -> Result<(GslibData, Coords, Vec<f64>), Box<dyn Error>> {
     let ds = read_checked(path, 4, "data")?;
+    if ds.data.nrows() == 0 {
+        return Err(format!("data file {} has no data rows", path.display()).into());
+    }
     let coords = coords_of(&ds);
     let values = ds.data.column(3).to_vec();
     Ok((ds, coords, values))

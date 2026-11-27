@@ -149,7 +149,14 @@ mod tests {
 /// - `cov_func`               : covariance model C(h).
 /// - `n_real`                 : number of realizations.
 ///
+/// Each node is estimated by simple indicator kriging around the global
+/// proportion p₀ (the fraction of conditioning data below `threshold`):
+/// p* = p₀ + Σ w_i·(i_i − p₀), clamped to [0, 1].
+///
 /// Returns a Vec of length `n_real`, each being a Vec<u8> of 0/1 indicators.
+///
+/// # Panics
+/// If `data_vals` is empty (p₀ is undefined) or its length differs from `data_coords`.
 pub fn sisim<F>(
     data_coords: &[(f64, f64, f64)],
     data_vals: &[f64],
@@ -163,13 +170,16 @@ where
 {
     let n_data = data_coords.len();
     let n_sim = sim_coords.len();
-    assert_eq!(data_vals.len(), n_data);
+    assert_eq!(data_vals.len(), n_data, "data_coords/data_vals length mismatch");
+    assert!(n_data > 0, "sisim needs at least one conditioning datum");
 
     // Precompute the indicator coding of the conditioning data
     let init_inds: Vec<f64> = data_vals
         .iter()
         .map(|&v| if v < threshold { 1.0 } else { 0.0 })
         .collect();
+    // Global proportion below the threshold: the SK mean of the indicator.
+    let p0 = init_inds.iter().sum::<f64>() / n_data as f64;
 
     let mut all_reals = Vec::with_capacity(n_real);
 
@@ -191,7 +201,7 @@ where
             let target = sim_coords[i];
             let m = cond_coords.len();
 
-            // build the SK system A·w = c (no mean here, indicators are zero‐mean residuals)
+            // build the SK system A·w = c on the indicator residuals (i − p0)
             let mut a = nalgebra::DMatrix::zeros(m, m);
             for ii in 0..m {
                 for jj in 0..m {
@@ -206,9 +216,9 @@ where
             // solve for weights; if singular, use marginal probability = mean of cond_inds
             let p = match solve_kriging_system(&a, &c) {
                 Some(w) => {
-                    let mut prob = 0.0;
+                    let mut prob = p0;
                     for (wi, &ind) in w.iter().zip(cond_inds.iter()) {
-                        prob += wi * ind;
+                        prob += wi * (ind - p0);
                     }
                     // clamp into [0,1]
                     prob.clamp(0.0, 1.0)
@@ -265,6 +275,32 @@ mod sisim_tests {
         for sim in reps {
             assert_eq!(sim, vec![0,0]);
         }
+    }
+
+    /// Beyond the correlation range the indicator probability must revert to
+    /// the global proportion, not to 0. All data below threshold ⇒ p0 = 1.
+    #[test]
+    fn test_sisim_far_node_uses_global_proportion() {
+        let data_coords = vec![(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)];
+        let data_vals = vec![0.0, 0.0];
+        let sim_coords = vec![(50.0, 0.0, 0.0)];
+        let cov = |h: f64| (-h).exp();
+        let reps = sisim(&data_coords, &data_vals, &sim_coords, 1.0, cov, 20);
+        assert!(reps.iter().all(|r| r[0] == 1), "{reps:?}");
+    }
+
+    /// With p0 = 0.5 and a node far from all data, about half the draws are 1.
+    #[test]
+    fn test_sisim_far_node_frequency_matches_proportion() {
+        let data_coords = vec![(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)];
+        let data_vals = vec![0.0, 2.0];
+        let sim_coords = vec![(50.0, 0.0, 0.0)];
+        let cov = |h: f64| (-h).exp();
+        let n = 2000;
+        let reps = sisim(&data_coords, &data_vals, &sim_coords, 1.0, cov, n);
+        let freq = reps.iter().filter(|r| r[0] == 1).count() as f64 / n as f64;
+        // sd of the frequency is ~0.011; allow ~5 sd.
+        assert!((freq - 0.5).abs() < 0.06, "freq = {freq}");
     }
 }
 
