@@ -153,7 +153,21 @@ fn generate_case(
     }
     std::fs::create_dir_all(&work)?;
     for input in &case.inputs {
-        std::fs::copy(case_dir.join(input), work.join(input))?;
+        // An input missing from the case is taken from the synthetic suites
+        // and copied into the case, so the fixture holds the exact bytes used.
+        let local = case_dir.join(input);
+        if !local.is_file() {
+            let suite = case_dir.join("../../../data").join(input);
+            if !suite.is_file() {
+                return Err(format!(
+                    "{}: input {input} is neither in the case nor a data suite",
+                    case_dir.display()
+                )
+                .into());
+            }
+            std::fs::copy(&suite, &local)?;
+        }
+        std::fs::copy(&local, work.join(input))?;
     }
     std::fs::write(work.join("params.par"), &run.par)?;
 

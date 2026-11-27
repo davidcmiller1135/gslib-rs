@@ -424,9 +424,11 @@ this environment:
   `Cargo.toml`, `Cargo.lock`). `recipe_commit` stays, as information only.
 - Rationale: content survives squashing, so provenance stays verifiable on
   `main` indefinitely.
-- Consequences: the fixture-validation test notes any fixture whose
+- Consequences: `cargo xtask oracle status` lists any fixture whose
   `recipe_sha256` differs from the current recipe; such fixtures are still
-  valid. Generation still refuses uncommitted recipe changes.
+  valid. (The fixture test also prints a note, but `cargo test` hides output
+  from passing tests, so `status` is the place to look.) Generation still
+  refuses uncommitted recipe changes.
 
 ## Finding F-006: vmodel parity (plan step 4, 2026-11-27)
 From `VMODEL/VMODEL.FOR` and the first fixtures (8 cases in

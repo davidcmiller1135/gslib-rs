@@ -1815,7 +1815,11 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "gslib_rs",
  "oracle-case",
+ "rand",
+ "rand_chacha",
+ "rand_distr",
  "tempfile",
  "toml",
 ]

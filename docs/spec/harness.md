@@ -130,8 +130,10 @@ step weakens a lint or tolerance.
    - Tests: rewrite rules on Fortran snippets written for the test (no GSLIB
      source lines).
    - The patterns the rules must match are taken from the vendored source.
-3. **Synthetic data generator** (`cargo xtask gen-data`): seeded and
-   deterministic, writing a note per suite (R4).
+3. **Synthetic data generator** (done: `cargo xtask gen-data [--check]`, 10
+   suites in `tests/fixtures/data/`). Seeded and deterministic, writing a
+   note per suite (R4). A case lists a suite file in `inputs`, and `generate`
+   copies it into the case.
    - Tests: the same seed gives byte-identical output; each suite contains
      the edge cases it claims.
 4. **vmodel** (done: 8 fixtures, F-006; tolerance default confirmed, D-015).

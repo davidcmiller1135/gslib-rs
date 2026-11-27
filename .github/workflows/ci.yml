@@ -48,6 +48,8 @@ jobs:
       - run: cargo test --workspace
       - name: Vendored GSLIB 2.0 matches its manifest
         run: cargo xtask oracle verify-source
+      - name: Synthetic data suites match their generator
+        run: cargo xtask gen-data --check
       - name: Test without the plot feature
         run: cargo test -p gslib_rs --no-default-features
 

@@ -157,6 +157,7 @@ Further rules:
   cargo doc --workspace --no-deps
   cargo deny check
   cargo xtask oracle verify-source
+  cargo xtask gen-data --check
   ```
 - **GSLIB 2.0 source (the oracle):** `vendor/gslib-2.0/src/`, vendored
   byte-for-byte. **Never modify it**: `MANIFEST.sha256` verifies it, and
@@ -166,6 +167,9 @@ Further rules:
 - **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel` so
   far). To add one, write its `case.toml`, commit any recipe changes, then run
   `cargo xtask oracle generate --program <name>` (needs gfortran); never edit
-  generated files by hand. `harness/` compares gslib-rs against them
+  generated files by hand; `cargo xtask oracle status` lists fixtures made by
+  an older recipe. Synthetic inputs come from
+  `tests/fixtures/data/` (`cargo xtask gen-data`, defined in
+  `xtask/src/data.rs`). `harness/` compares gslib-rs against them
   (`docs/spec/harness.md`).
 - **Roadmap, divergences, provenance ledger:** `docs/ROADMAP.md`.
