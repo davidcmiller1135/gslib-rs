@@ -72,7 +72,8 @@ pub struct Objectives {
     pub correlations: Vec<CorrelationObjective>,
 }
 
-/// The annealing schedule (GSLIB `t0, redfac, ka, k, num, Omin`).
+/// The annealing schedule. Parameter names recalled from GSLIB `sasim`
+/// (`t0, redfac, ka, k, num, Omin`; TODO(parity-verify)).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Schedule {
     /// Starting temperature, > 0.
@@ -176,7 +177,7 @@ impl Component {
 /// One realization of **simulated annealing** on `grid`.
 ///
 /// Each component's mismatch is divided by its value for the initial field,
-/// so weights are relative (as in GSLIB).
+/// so weights are relative (as GSLIB does, from memory; TODO(parity-verify)).
 ///
 /// # Errors
 /// [`Error::InvalidInput`] for empty data, no objectives, an invalid schedule

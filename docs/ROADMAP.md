@@ -85,69 +85,79 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 
 ## 2. Deliberate divergences from GSLIB
 
-Each of these is documented at the definition and covered by tests.
+Rules (see `AGENTS.md`): explicit failure is the default, and GSLIB's silent
+coercions become **opt-in legacy policies, off by default**. Each divergence
+is documented at its definition and covered by tests. Descriptions of GSLIB
+behaviour in this table are recalled from memory until checked off in §6.
 
-| Topic | GSLIB | gslib-rs | Why |
+| Topic | GSLIB | gslib-rs default | Legacy policy |
 |---|---|---|---|
-| Errors | stops or writes a message and carries on | returns `Result`; never panics | callers decide; nothing is silently wrong |
-| Unsolvable kriging system | estimate skipped (or flagged) | `Error::SingularSystem` | a fallback to the mean hid duplicate data |
-| Power model covariance | `PMX − γ` with `PMX = 999` | `CovarianceModel` cannot be built from it | the trick gives arbitrary results in SK/SGS |
-| Ties in `nscore` | broken by sort order (despiking optional) | tied values share one score | deterministic, order-independent |
-| Normal quantile | `gauinv` (Odeh–Evans, ~1e-7) | `erfc_inv` (~1e-16) + `libm::erfc` | double-precision accuracy |
-| RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | reproducible, thread-safe; GSLIB realizations cannot be bit-reproduced anyway (path and search differ) |
-| Lag classes | lag centres at multiples of `xlag` with `xltol` | equal classes over `[0, max]` | to be revisited with directional `gamv` |
-| Power model range | range slot holds ω | `Kind::Power { exponent }`, range is a unit distance | separates the two meanings; range 1 matches GSLIB |
+| Errors | stops, or writes a message and carries on | returns `Result`; never panics | (n/a) |
+| Unsolvable kriging system | node skipped / written as `UNEST` | `Error::SingularSystem` | planned: `OnSingular::SkipAsUnestimated` |
+| Anisotropy ratio ≤ 0 | clamped to `EPSLON` | `Error::InvalidInput` | planned: clamp policy |
+| Power model covariance | `PMX − γ` with a large `PMX` | `CovarianceModel` cannot be built from it | planned, if exact parity needs it |
+| Ties in `nscore` | broken by sort order (despiking optional) | tied values share one score | planned: rank order |
+| Normal quantile | `gauinv` (low-order approximation) | `erfc_inv` (~1e-16) + `libm::erfc` | not planned: extension |
+| RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
+| Lag classes | centres at multiples of `xlag` with tolerance `xltol` | equal classes over `[0, max]` | to be replaced by GSLIB lags with directional `gamv` |
+| π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
+| Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
+| Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
 
 ## 3. Validation strategy
 
-The current tests check analytic cases and invariants. Parity needs comparison
-with the Fortran.
+Parity levels (from `AGENTS.md`):
 
-- **Golden files.** Build Fortran GSLIB with gfortran in CI (or commit its
-  outputs). Run both on the book's data sets (`cluster.dat`, `true.dat`,
-  `ydata.dat`). Deterministic programs (`gamv`, `kt3d`, `nscore`, `declus`)
-  should agree to ~1e-6. Check GSLIB's licence before vendoring its source or
-  data.
-- **Statistical tests for simulation.** Over many realizations, the mean
-  histogram and variogram should reproduce the model within tolerance. This
-  checks correctness rather than matching random numbers.
-- **Property tests** (already started with `proptest`): symmetry, round trips,
-  monotonicity, positive-definiteness of covariance matrices for valid models.
-- **Performance budgets.** `criterion` benchmarks for the variogram, kriging
-  and SGS on realistic sizes, run in CI so regressions are caught.
+| Programs | Default parity | Opt-in |
+|---|---|---|
+| Deterministic (`gamv`, `kt3d`, `nscore`, `declus`, …) | numerical, within documented tolerances | (n/a) |
+| Stochastic (`sgsim`, `sisim`, `sasim`, …) | statistical: histogram, variogram and proportions over many realizations | exact stream parity (ACORN, same path and search, against the promoted build) |
+
+Planned verification work:
+
+- **Reference build.** Fortran GSLIB compiled with double promotion
+  (`-fdefault-real-8 -fdefault-double-8`), with output formats widened (or
+  tolerances derived from the formats). Compiler, flags and source patches are
+  recorded with every fixture. Check GSLIB's licence before vendoring its
+  source or data; until then, commit generated fixtures plus the recipe.
+- **Golden fixtures** in `tests/fixtures/gslib/`, from the book's data sets
+  (e.g. `cluster.dat`, `true.dat`), each with a provenance note.
+- **Statistical tests** for simulations: fixed seeds; tolerances justified by
+  sample size.
+- **Property tests** (`proptest`, already in use): symmetry, round trips,
+  monotonicity, positive definiteness for valid models.
+- **Performance budgets:** `criterion` benchmarks at realistic sizes, so
+  regressions are caught.
 
 ## 4. Architecture direction
 
-Where the code is now, and where it is heading.
+The guiding principle is **no ceremony**: structure has to earn its place
+(`AGENTS.md`).
 
-**Now:** one library crate with a mostly pure core (`model`, `kriging`,
-`variogram`, `transform`, `simulation`, `search`), adapters in the same crate
-(`io`, `plot` behind a feature), and a CLI shell.
+**Now:**
+- one library crate with a pure core (`geometry`, `model`, `variogram`,
+  `kriging`, `search`, `transform`, `simulation`);
+- boundary modules in the same crate (`io`, and `plot` behind a feature);
+- a CLI shell.
 
-**Next steps:**
+**Next, when justified:**
 
-- **Split the crates along the hexagon:**
-  - `gslib-core`: domain types and pure algorithms; no filesystem, no plotting.
-  - `gslib-io`: GSLIB ASCII, `.par`, CSV, later Parquet/VTK/GeoTIFF.
-  - `gslib-plot`.
-  - `gslib-cli`.
-- **Ports as traits** in the core:
-  - a `Neighbourhood`/spatial-index trait (brute force now, k-d tree or super
-    block later);
-  - a `CovarianceFunction` trait so non-GSLIB models can plug in;
-  - sources and sinks for data and realizations.
-- **Ubiquitous language (DDD).** Keep the core's names in GSLIB and
-  geostatistics terms: `Sample`, `Structure`, `VariogramModel`, `Search`,
-  `Grid`, `Realization`. Candidate bounded contexts: exploratory analysis,
-  variography, estimation, simulation, transforms.
-- **Functional core.** Algorithms take every input explicitly, including the
-  random number generator, and return values. Local mutation inside a
-  function is fine; shared state is not. Next: replace the remaining
-  `Vec`-mutating loops in SASIM with an explicit state value.
+- **Neighbourhood trait.** Brute force, super-block and k-d tree searches are
+  genuine substitutes, so they share a trait. This is the one trait currently
+  planned.
+- **Crate split only for a concrete reason**, such as a boundary that drags in
+  heavy dependencies. The `plot` feature already keeps system libraries out of
+  the core; a separate I/O crate becomes worth it if formats like VTK or
+  Parquet arrive.
+- **Missing values.** `Option` in memory; sentinels and trimming limits only in
+  `io` (and a parameter-file adapter).
+- **Domain types at the edges of algorithms, flat slices inside.** Kernels
+  work on `&[f64]` / `&mut [f64]`, with grid indexing through one `Grid` type.
 - **Parse, don't validate.** `Sample`, `VariogramModel`, `CovarianceModel`,
-  `LagClasses`, `Search` and `Grid` can only be built valid. Continue this
-  for every configuration type (e.g. SASIM's `Schedule`, which is still
-  checked at use).
+  `LagClasses`, `Search` and `Grid` can only be built valid. SASIM's
+  `Schedule` is still checked at use; fix that.
+- **Legacy policies as values.** For example, `OnSingular`, passed explicitly
+  and selected by a GSLIB-compatibility mode in the CLI.
 
 ## 5. Beyond GSLIB
 
@@ -166,3 +176,35 @@ Once parity is solid:
   keeps the core free of system dependencies).
 - **Uncertainty workflows:** Bayesian model parameters and realization
   ranking.
+
+## 6. Provenance ledger
+
+Claims about GSLIB written from memory, not yet checked against its source or
+a reference run. Each is marked `TODO(parity-verify)` in the code. Tick an
+item off only after checking it against the Fortran source or a recorded
+reference run, and say which.
+
+- [x] `setrot` rotation matrix and angle conventions: matches term for term;
+  dip is negative downward per `gamv`'s comment and `setrot`'s arithmetic
+  (`setrot`'s own comment says otherwise). F-004.
+- [x] `setrot` clamps anisotropy ratios to `EPSLON = 1.e-20`. F-004.
+- [x] `cova3` formulas, types 1–5, power ω in the range slot, `PMX = 999.`:
+  all match **except the Gaussian, which was wrong in gslib-rs and is now
+  fixed**. F-004.
+- [ ] `backtr` interior interpolation (linear in score space) and the meaning
+  of tail option 1: `transform.rs`
+- [ ] `nscore` tie handling and despiking: §2
+- [ ] `gauinv` algorithm and accuracy: §2
+- [ ] ACORN as the generator; 69069 as the customary seed: §2, `cli/src/main.rs`
+- [ ] Grid conventions: `xmn` is the first cell's centre, x-fastest order:
+  `simulation/grid.rs`
+- [ ] Search parameter names (`ndmax`, `nodmax`, `radius`): `search.rs`
+- [ ] `sasim` schedule parameters (`t0, redfac, ka, k, num, Omin`) and
+  objective normalisation by initial values: `simulation/sasim.rs`
+- [ ] `gamv` lag definition (`xlag`, `xltol`): §2
+- [ ] Unsolvable kriging systems are skipped and written as `UNEST`: §2
+- [ ] Standard-normal reference values in the `transform.rs` tests, against an
+  independent high-precision source
+- [x] GSLIB version and licence terms of the reference source: GSLIB 2.0
+  (`VERSION=2.000`), 1996 Stanford notice. Verified from the archive itself
+  (F-003, D-013 in `docs/spec/decisions.md`).

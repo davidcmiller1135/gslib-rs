@@ -1,5 +1,9 @@
 # Contributing
 
+The engineering rules for this project, covering precedence, GSLIB parity,
+boundaries and testing, are in [`AGENTS.md`](AGENTS.md). They apply to humans
+and agents alike. This file covers the mechanics.
+
 ## Workflow
 
 - `main` is the only long-lived branch. It is always releasable.

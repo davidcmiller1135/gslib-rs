@@ -137,7 +137,7 @@ struct RealizationArgs {
     /// Number of realizations.
     #[arg(long, default_value_t = 1)]
     nsim: usize,
-    /// Random seed (GSLIB's customary default is 69069).
+    /// Random seed (69069, recalled as GSLIB's customary example seed).
     #[arg(long, default_value_t = 69069)]
     seed: u64,
     /// Output prefix: writes `PREFIX_0.gslib`, `PREFIX_1.gslib`, ...

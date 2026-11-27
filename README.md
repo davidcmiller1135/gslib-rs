@@ -104,3 +104,8 @@ cargo deny check
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The GSLIB 2.0 source is vendored unmodified in
+[`vendor/gslib-2.0/`](vendor/gslib-2.0/README.md) as the parity reference.
+Parts of gslib-rs are derived from it; its 1996 Stanford copyright notice is
+reproduced in [NOTICE](NOTICE).

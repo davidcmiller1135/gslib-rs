@@ -158,7 +158,8 @@ pub enum Tail {
     /// Return the nearest table value (no extrapolation).
     Clamp,
     /// Extrapolate linearly in probability to this bound, which is reached at
-    /// probability 0 (lower tail) or 1 (upper tail). GSLIB tail option 1.
+    /// probability 0 (lower tail) or 1 (upper tail). Intended to match GSLIB
+    /// tail option 1; TODO(parity-verify) against `backtr.for`.
     Linear(f64),
 }
 
@@ -227,7 +228,8 @@ impl BackTransform {
             };
         }
         // Interior: linear interpolation in score space between the
-        // bracketing table rows (GSLIB `backtr`).
+        // bracketing table rows, as recalled from GSLIB `backtr`
+        // (TODO(parity-verify)).
         let entries = &self.table.entries;
         let above = entries.partition_point(|e| e.score <= score);
         match (
@@ -254,7 +256,9 @@ mod tests {
     #[test]
     fn quantile_and_cdf_are_inverse() {
         assert_abs_diff_eq!(normal_quantile(0.5), 0.0, epsilon = EPS);
-        // Reference values to 16 digits.
+        // Standard values to 16 digits, written from memory. So far they are
+        // only cross-checked between statrs and libm, not against an
+        // independent high-precision source. TODO(parity-verify)
         assert_abs_diff_eq!(
             normal_quantile(0.975),
             1.959_963_984_540_054,

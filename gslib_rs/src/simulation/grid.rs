@@ -6,6 +6,9 @@ use crate::num::{floor_index, to_f64};
 
 /// One axis of a regular grid: `count` cells of width `spacing`, the first
 /// centred at `first_center` (GSLIB `nx`, `xmn`, `xsiz`).
+///
+/// TODO(parity-verify): `xmn` as the first cell's *centre* and x-fastest
+/// node order are recalled conventions; confirm against GSLIB.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Axis {
     /// Number of cells.
