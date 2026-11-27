@@ -201,4 +201,5 @@ reference run, and say which.
 - [ ] Unsolvable kriging systems are skipped and written as `UNEST`: §2
 - [ ] Standard-normal reference values in the `transform.rs` tests, against an
   independent high-precision source
-
+- [ ] GSLIB version and licence terms of the reference source (D-002 in
+  `docs/spec/decisions.md`): read from the archive itself

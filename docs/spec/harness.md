@@ -1,0 +1,161 @@
+# Spec: Fortran comparison harness
+
+Status: **specified** (decisions D-001 to D-012 in `decisions.md`); one
+blocker remains: D-002 (GSLIB version and licence, read from the archive).
+
+## Purpose
+
+Provide verified reference outputs ("fixtures") from Fortran GSLIB so that
+gslib-rs can be checked for parity (`AGENTS.md`, *Parity levels*), and so that
+items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
+
+## Fixed by AGENTS.md (not up for decision here)
+
+- The reference build uses double promotion (`-fdefault-real-8
+  -fdefault-double-8` or equivalent).
+- Output precision must not be limited by Fortran formats: either widen the
+  formats or derive tolerances from them.
+- Every fixture records the GSLIB version, compiler and flags, source patches,
+  input data, and parameter file.
+- Fixtures live under `tests/fixtures/gslib/`.
+- Deterministic programs are compared numerically; stochastic programs
+  statistically by default.
+
+## Decisions so far
+
+- Reference source: official download from gslib.com (D-001).
+- Version and licence: **blocked** (D-002); until resolved, nothing from GSLIB
+  is committed.
+- Oracle runs offline via a pinned recipe; tests compare against committed
+  fixtures (D-003).
+- Input data: our own seeded synthetic suites plus the GSLIB book data sets
+  (the latter once their licence is known) (D-004).
+- The oracle is the double-promoted build from source **only**; precompiled
+  binaries (e.g. upc-ghs/gslib-executables, F-001) are never a test oracle
+  (D-005).
+- The user provides the GSLIB archive to a session, which builds it with
+  gfortran (D-006).
+- Each reference case is a versioned TOML case file. The recipe generates
+  GSLIB's `.par` from it; Rust tests read the TOML (D-007).
+- The recipe is a Rust `xtask`. The schema lives in an internal `oracle-case`
+  crate, and the harness tests in a tests-only `harness` crate (D-008).
+- Fixtures store GSLIB's outputs verbatim alongside `provenance.toml` (D-009).
+- Deterministic outputs are compared with per-quantity, justified tolerances;
+  structure must match exactly (D-010).
+- Stochastic programs are compared ensemble against ensemble at 5 standard
+  errors, plus independent invariant checks (D-011).
+- Coverage order: vmodel → nscore/backtr → gamv → kt3d → sgsim (D-012).
+
+## Requirements
+
+- **R1 Recipe.** `cargo xtask oracle` (D-008), given gfortran and a GSLIB
+  archive (`--archive PATH`, provided by the user per D-006):
+  1. fails unless the archive's SHA-256 matches the pinned value;
+  2. widens numeric output formats with generic rewrite rules (no GSLIB source
+     lines stored in the repository);
+  3. builds with double promotion, recording compiler version and flags;
+  4. runs each reference case and writes its fixture and provenance record.
+- **R2 Offline tests.** `cargo test` never needs network access, gfortran or
+  GSLIB; it reads committed fixtures only.
+- **R3 Reproducible fixtures.** Re-running the recipe with the same pinned
+  inputs reproduces the committed fixtures byte-for-byte, or the difference is
+  explained in the provenance record.
+- **R4 Synthetic suites.** A committed generator script, seeded, produces each
+  synthetic input and a note saying what behaviour it targets.
+- **R5 Case files.** Each reference case is one versioned TOML file. The
+  recipe generates the program's `.par` from it and stores that `.par` with
+  the fixture.
+- **R6 Fixture layout.** `tests/fixtures/gslib/<program>/<case>/` contains
+  `case.toml`, the inputs, `params.par`, GSLIB's outputs byte-for-byte, and
+  `provenance.toml` with every field listed in D-009. The harness fails if any
+  field is missing.
+- **R7 Deterministic comparison.** Structure (shape, names, missing positions)
+  must match exactly. Values: by default, relative 1e-12 for direct formulas
+  and k·cond(A)·ε for kriging results (k to be calibrated, D-010). Overrides
+  need a justification in `case.toml`. Failures report the maximum
+  absolute/relative error and its location.
+- **R8 Statistical comparison.** For each stochastic case, N realizations
+  (N = 100 to start) from each implementation. Per lag and per quantile, the
+  difference of ensemble means must be within 5 combined standard errors.
+  gslib-rs must also reproduce the input model and histogram within 5
+  standard errors on its own. Seeds are fixed; fixtures stay under 2 MB.
+
+## Expected deviations
+
+Known divergences between gslib-rs and GSLIB (`docs/ROADMAP.md` §2) would
+make some fixtures fail by design. They are handled explicitly, never by
+loosening tolerances:
+
+- **Lag classes (gamv).** gslib-rs uses equal classes over `[0, max]`; GSLIB
+  uses `xlag`/`xltol`. GSLIB-style lag classes must be implemented before gamv
+  fixtures are added (plan step 6).
+- **Ties (nscore).** Cases without ties must match exactly. Cases with ties
+  are either declared an expected deviation in `case.toml`, with the reason,
+  or compared against an opt-in legacy tie policy once one exists.
+- **Search (kt3d, sgsim).** The first kriging cases use a search that
+  includes every datum, so only the model and solver are compared. Cases that
+  exercise GSLIB's super-block and octant search wait for that search to be
+  implemented.
+
+## Open questions
+
+- D-002 (blocked): GSLIB version and licence, to be read from the archive
+  when it arrives. Until then, nothing derived from GSLIB is committed.
+
+## Implementation plan
+
+Each step is one reviewable PR. The checks in `AGENTS.md` must pass, and no
+step weakens a lint or tolerance.
+
+1. **Harness scaffolding.** Add the `oracle-case`, `harness` and `xtask` crates
+   (`publish = false`) and the `cargo xtask` alias.
+   - Schema v1 types and TOML parsing in `oracle-case`.
+   - Fixture discovery and provenance validation (R6) in `harness`.
+   - Archive SHA-256 verification in `xtask oracle --archive`.
+   - New dependencies (e.g. `serde`, `toml`, `sha2`) justified and passing
+     `cargo deny`.
+   - Tests: schema round trip; rejection of a missing provenance field;
+     checksum mismatch fails; `cargo test` passes with no fixtures present.
+2. **Build stage.** The xtask locates gfortran (setup runs `apt-get update`
+   first, D-006), applies the generic format-widening rules, builds with
+   double promotion, and records the full compiler version and flags.
+   - Tests: rewrite rules on Fortran snippets written for the test (no GSLIB
+     source lines).
+   - The patterns the rules must match are confirmed on the real source:
+     blocked on the archive.
+3. **Synthetic data generator** (`cargo xtask gen-data`): seeded and
+   deterministic, writing a note per suite (R4).
+   - Tests: the same seed gives byte-identical output; each suite contains
+     the edge cases it claims.
+4. **vmodel.**
+   - Work: `.par` generator (layout read from the source); reader for its
+     output; comparison through `VariogramModel::gamma` along GSLIB's
+     directions.
+   - Cases: each structure type, nugget only, nested structures, azimuth,
+     dip (including its sign), plunge, and anisotropy ratios.
+   - Outcome: tick off the `setrot`/`cova3` items in ROADMAP §6, or fix the
+     code.
+   - Blocked on: archive, D-002.
+5. **nscore / backtr.**
+   - Work: `.par` generators and a transformation-table reader.
+   - Cases: tie-free (exact), weighted, ties (expected deviation), and tails
+     (option 1).
+   - Outcome: tick off the nscore, backtr and gauinv ledger items.
+   - Then a decision entry calibrating the 1e-12 default from the evidence
+     (D-010).
+6. **gamv.**
+   - Work: first implement GSLIB-style lag classes (`xlag`/`xltol`) in
+     `variogram`, with their own unit tests; then the `.par` generator and an
+     output reader.
+   - Cases: omnidirectional only at this stage.
+7. **kt3d.**
+   - Cases: simple and ordinary kriging at points, with a search covering
+     every datum; well- and ill-conditioned configurations.
+   - Then a decision entry calibrating k in k·cond(A)·ε (D-010).
+8. **sgsim.**
+   - Cases: N = 100 realizations per implementation on a small grid; R8
+     statistics plus the independent model-reproduction checks.
+   - Fixture under 2 MB (D-011).
+
+Steps 1–3 can start now. Steps 4–8 and every committed fixture wait for the
+archive (D-006) and the licence check (D-002).
