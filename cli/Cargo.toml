@@ -22,7 +22,7 @@ doc = false
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
 csv = "1.4"
-gslib_rs = { path = "../gslib_rs", version = "0.1.0", features = ["plot"] }
+gslib_rs = { path = "../gslib_rs", version = "0.1.0", features = ["plot", "parallel"] }
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_chacha = "0.10"
 

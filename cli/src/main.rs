@@ -17,6 +17,7 @@ use gslib_rs::geometry::Point3;
 use gslib_rs::io::{Extraction, GslibData, PresentSamples, read_gslib, write_gslib};
 use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
+use gslib_rs::parallel::try_map;
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
 use gslib_rs::search::{DataSearch, SearchEllipsoid, SuperBlock};
@@ -381,16 +382,16 @@ fn krige(args: &KrigeArgs) -> AppResult {
     let targets_file = read_gslib(&args.targets)?;
     let targets = TARGET_COLUMNS.points(&targets_file)?;
     let search = args.search.search()?;
-    // The data are fixed, so index them once.
+    // The data are fixed, so index them once; targets are kriged in
+    // parallel, with results independent of the thread count (D-030).
     let index = SuperBlock::new(&samples);
 
     let estimates = match args.kind {
         KrigingType::Ordinary => {
             let model = args.model.variogram()?;
-            targets
-                .iter()
-                .map(|&t| ordinary_kriging(&search.select_samples(&index, t)?, t, &model))
-                .collect::<Result<Vec<_>, _>>()?
+            try_map(&targets, |&t| {
+                ordinary_kriging(&search.select_samples(&index, t)?, t, &model)
+            })?
         }
         KrigingType::Simple => {
             let model = args.model.covariance()?;
@@ -398,10 +399,9 @@ fn krige(args: &KrigeArgs) -> AppResult {
                 Some(m) => m,
                 None => mean_value(&samples).ok_or("no data to compute the mean from")?,
             };
-            targets
-                .iter()
-                .map(|&t| simple_kriging(&search.select_samples(&index, t)?, t, &model, mean))
-                .collect::<Result<Vec<_>, _>>()?
+            try_map(&targets, |&t| {
+                simple_kriging(&search.select_samples(&index, t)?, t, &model, mean)
+            })?
         }
     };
     let value: Vec<f64> = estimates.iter().map(|e| e.value).collect();

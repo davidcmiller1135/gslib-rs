@@ -130,7 +130,7 @@ and acceptance tests named in it.
 | C4 | **Spec first:** `kt3d` completeness (block discretisation, trend/KT, external drift, cross-validation, gridded output, `OnSingular` policy and its UNEST code, ledger item "unsolvable systems are skipped") | new `docs/spec/kt3d.md` | C3 |
 | C5 | **Spec first:** ACORN and exact-stream parity as an opt-in. Decides the RNG trait, the `Seed` type, the random path and the per-realization seed derivation. | new `docs/spec/rng.md` | A2 |
 | C6 | `sgsim` harness step 8: statistical parity, N = 100 realizations, R8 statistics, fixture < 2 MB. Also adds the covariance lookup table and spiral search. | `harness.md` step 8; needs C2, C5 | C2, C5 |
-| C7 | **Spec done** (`docs/spec/parallelism.md`, D-029…D-033): `rayon` in an opt-in `parallel` module; parallel kriging over targets; exact pair pruning and a fixed-block parallel variogram; parallel realizations after C5; GPU only with evidence | `docs/spec/parallelism.md` | C2 step 2 (done); realizations also need C5 |
+| C7 | **Spec done** (`docs/spec/parallelism.md`, D-029…D-033); **step 1 done**: `rayon` in an opt-in `parallel` module; parallel kriging over targets; exact pair pruning and a fixed-block parallel variogram; parallel realizations after C5; GPU only with evidence | `docs/spec/parallelism.md` | C2 step 2 (done); realizations also need C5 |
 
 ### Phase D: remaining parity (ROADMAP §1, suggested order)
 

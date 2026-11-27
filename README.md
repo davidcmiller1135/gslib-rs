@@ -65,6 +65,9 @@ so `--tmin -998` drops −999), or `--no-trimming` if they are real data. NaN
 and infinite values are errors unless `--nan missing` or
 `--inf missing|clamp` says otherwise. Coordinates are never trimmed.
 
+**Threads.** `krige` uses every core; set `RAYON_NUM_THREADS` to limit it.
+Results are identical for any number of threads.
+
 ## Library
 
 ```rust

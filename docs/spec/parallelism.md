@@ -97,7 +97,12 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass, and
 CI gains a `--features parallel` build where it is not already covered by
 feature unification (D-030).
 
-1. **Parallel kriging over targets.**
+1. **Parallel kriging over targets** (done: `rayon` 1.12 passes `cargo deny`;
+   `parallel::try_map` and `parallel::with_threads`; the `krige` command
+   kriges its targets in parallel. Tests: bit-identical estimates with 1, 2
+   and 8 threads; the first error in item order with a deliberately slow
+   failing item; the first failing target named. Collecting straight into
+   a `Result` was caught on 3 of 3 runs).
    - Work:
      - `rayon` (D-029, passing `cargo deny check`);
      - the `parallel` feature and `gslib_rs::parallel` (D-030), with a

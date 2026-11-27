@@ -178,7 +178,7 @@ Once parity is solid:
 
 - **Parallel execution** (`docs/spec/parallelism.md`, D-029–D-033), with output
   bit-identical for any thread count:
-  - kriging at many targets (searches are already pure and thread-safe);
+  - kriging at many targets (done: `parallel::try_map`, used by `krige`);
   - experimental variograms, with a fixed-block deterministic reduction and
     exact pruning of pairs beyond the largest lag through the super-block
     (O(N²) toward O(N·k));
