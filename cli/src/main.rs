@@ -13,7 +13,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gslib_rs::geometry::Point3;
-use gslib_rs::io::{GslibData, read_gslib, write_gslib};
+use gslib_rs::io::{Extraction, GslibData, Trimming, read_gslib, write_gslib};
 use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::plot::{VariogramPlot, save};
@@ -70,12 +70,17 @@ impl Columns {
     }
 
     fn samples(self, data: &GslibData) -> AppResult<Vec<Sample>> {
-        Ok(data.samples(
-            Self::zero_based(self.x),
-            Self::zero_based(self.y),
-            Self::zero_based(self.z),
-            Self::zero_based(self.value),
-        )?)
+        // No trimming yet; the CLI flags and the sentinel guard are
+        // docs/spec/missing-values.md step 3.
+        Ok(data
+            .samples(
+                Self::zero_based(self.x),
+                Self::zero_based(self.y),
+                Self::zero_based(self.z),
+                Self::zero_based(self.value),
+                &Extraction::new(Trimming::NONE),
+            )?
+            .into_samples())
     }
 
     fn points(self, data: &GslibData) -> AppResult<Vec<Point3>> {

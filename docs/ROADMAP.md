@@ -16,7 +16,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
-| file format | 🟡 | `io::parse_gslib` / `format_gslib` | **trimming limits** (`tmin`/`tmax`) and missing values, used by every program; Fortran fixed-format output |
+| file format | 🟡 | `io::parse_gslib` / `format_gslib`; trimming and non-finite policies on extraction (`io::Extraction`) | row-aligned writing of missing values with output codes; CLI trimming flags and sentinel guard; Fortran fixed-format output |
 | `.par` files | ⬜ | (CLI flags) | read GSLIB parameter files so existing workflows run unchanged |
 | `nscore` | 🟡 | `transform::normal_scores`; parity fixtures (F-007) | trimming limits; reference distribution option; rank output (negative column); random despiking as a legacy policy; writing the transformation table; CLI subcommand |
 | `backtr` | 🟡 | `transform::BackTransform`; parity fixtures (F-007) | power (ω ≠ 1) and hyperbolic tails; CLI subcommand |

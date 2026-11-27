@@ -76,7 +76,10 @@ None.
 
 Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
 
-1. **Extraction API** (`gslib_rs::io`).
+1. **Extraction API** (`gslib_rs::io`; done: `Trimming`, `OnNan`,
+   `OnInfinite`, `Extraction`, `GslibData::extract`, `samples` returning
+   `PresentSamples`, `Error::NonFinite`; 10 tests, each caught a planted
+   bug in a mutation check).
    - Add `Trimming` (half-open limits, or none) and `NonFinite` policies
      (NaN: `Error`/`Missing`; ±Inf: `Error`/`Missing`/`ClampToRange`), and
      `GslibData::extract(column, &policy) -> Result<Vec<Option<f64>>>`.

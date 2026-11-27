@@ -2,6 +2,27 @@
 //!
 //! [`parse_gslib`] and [`format_gslib`] are pure; [`read_gslib`] and
 //! [`write_gslib`] are thin wrappers that touch the filesystem.
+//!
+//! # Missing values (`docs/spec/missing-values.md`)
+//!
+//! [`GslibData`] holds a file's values exactly as written, sentinel codes
+//! such as −999 included (M1). Missingness is decided only when values are
+//! taken out, by an [`Extraction`] policy (D-018):
+//!
+//! 1. **Non-finite values first** (M9): NaN and ±Inf are errors by default,
+//!    or become missing ([`OnNan`], [`OnInfinite`]). Infinities can instead
+//!    be clamped to the largest or smallest finite value kept by the
+//!    trimming limits (D-020).
+//! 2. **Then trimming** (M4): a value is present iff `tmin ≤ v < tmax`, the
+//!    half-open test most GSLIB programs use (F-009, D-019).
+//!
+//! Each value is decided on its own (M7); coordinates are never trimmed
+//! (D-022).
+//!
+//! **Divergence from GSLIB** (ROADMAP §2): GSLIB passes NaN through its
+//! trimming tests as data and trims ±Inf by its limits (F-010). Here both are
+//! errors unless a policy says otherwise, and the non-finite policy applies
+//! even where finite limits would have trimmed the value.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -9,6 +30,136 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::geometry::Point3;
 use crate::sample::Sample;
+
+/// Trimming limits: a value `v` is present iff `tmin ≤ v < tmax` (D-019).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Trimming {
+    limits: Option<(f64, f64)>,
+}
+
+impl Trimming {
+    /// No limits: every finite value is present.
+    pub const NONE: Self = Self { limits: None };
+
+    /// Limits `tmin ≤ v < tmax`. Either limit may be infinite.
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if a limit is NaN or `tmin ≥ tmax` (an empty
+    /// interval would silently discard every value).
+    pub fn limits(tmin: f64, tmax: f64) -> Result<Self> {
+        if tmin.is_nan() || tmax.is_nan() {
+            return Err(Error::invalid(
+                "trimming limits",
+                format!("tmin {tmin} and tmax {tmax} must not be NaN"),
+            ));
+        }
+        if tmin >= tmax {
+            return Err(Error::invalid(
+                "trimming limits",
+                format!("tmin {tmin} must be less than tmax {tmax}"),
+            ));
+        }
+        Ok(Self {
+            limits: Some((tmin, tmax)),
+        })
+    }
+
+    /// The limits `(tmin, tmax)`, or `None` for no trimming.
+    #[must_use]
+    pub const fn bounds(&self) -> Option<(f64, f64)> {
+        self.limits
+    }
+
+    /// Whether `v` lies within the limits. NaN never does, except with
+    /// [`Trimming::NONE`]; [`GslibData::extract`] deals with NaN before
+    /// trimming.
+    #[must_use]
+    pub fn contains(&self, v: f64) -> bool {
+        self.limits.is_none_or(|(tmin, tmax)| tmin <= v && v < tmax)
+    }
+}
+
+/// What extraction does with a NaN value (D-020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnNan {
+    /// Fail with [`Error::NonFinite`].
+    #[default]
+    Error,
+    /// Treat it as missing.
+    Missing,
+}
+
+/// What extraction does with an infinite value (D-020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnInfinite {
+    /// Fail with [`Error::NonFinite`].
+    #[default]
+    Error,
+    /// Treat it as missing.
+    Missing,
+    /// Replace +Inf with the column's largest finite value within the
+    /// trimming limits, and −Inf with its smallest. Fails if there is none.
+    ClampToRange,
+}
+
+/// How values become present or missing when taken out of a [`GslibData`]:
+/// the non-finite policies first, then trimming (M9).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Extraction {
+    /// Trimming limits.
+    pub trimming: Trimming,
+    /// What to do with NaN.
+    pub nan: OnNan,
+    /// What to do with ±Inf.
+    pub infinite: OnInfinite,
+}
+
+impl Extraction {
+    /// The given trimming, with non-finite values as errors (the defaults).
+    #[must_use]
+    pub const fn new(trimming: Trimming) -> Self {
+        Self {
+            trimming,
+            nan: OnNan::Error,
+            infinite: OnInfinite::Error,
+        }
+    }
+}
+
+/// The samples of a data set whose values are present, with the rows they
+/// came from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PresentSamples {
+    samples: Vec<Sample>,
+    rows: Vec<usize>,
+    total_rows: usize,
+}
+
+impl PresentSamples {
+    /// The present samples, in row order.
+    #[must_use]
+    pub fn samples(&self) -> &[Sample] {
+        &self.samples
+    }
+
+    /// The 0-based row of each sample.
+    #[must_use]
+    pub fn rows(&self) -> &[usize] {
+        &self.rows
+    }
+
+    /// The number of rows in the data set, present or not.
+    #[must_use]
+    pub const fn total_rows(&self) -> usize {
+        self.total_rows
+    }
+
+    /// The samples, without their rows.
+    #[must_use]
+    pub fn into_samples(self) -> Vec<Sample> {
+        self.samples
+    }
+}
 
 /// The contents of a GSLIB file: a title, variable names, and a table of
 /// values with one column per variable.
@@ -103,19 +254,115 @@ impl GslibData {
             .collect())
     }
 
-    /// Samples from three coordinate columns and a value column (0-based).
+    /// One column by 0-based index, with missingness decided by `policy`:
+    /// one entry per row, `None` where the value is missing (M3, M5, M9).
     ///
     /// # Errors
-    /// [`Error::InvalidInput`] if a column does not exist or a row has a
-    /// non-finite coordinate or value.
+    /// - [`Error::InvalidInput`] if the column does not exist, or if
+    ///   [`OnInfinite::ClampToRange`] has no finite value to clamp to.
+    /// - [`Error::NonFinite`] for the first NaN or ±Inf that the policy
+    ///   rejects, naming its 1-based row and column.
+    pub fn extract(&self, index: usize, policy: &Extraction) -> Result<Vec<Option<f64>>> {
+        let raw = self.column(index)?;
+        let range =
+            if policy.infinite == OnInfinite::ClampToRange && raw.iter().any(|v| v.is_infinite()) {
+                Some(clamp_range(&raw, policy.trimming).ok_or_else(|| {
+                    Error::invalid(
+                        "column",
+                        format!(
+                            "column {}: no finite value within the trimming limits \
+                         to clamp infinite values to",
+                            index + 1
+                        ),
+                    )
+                })?)
+            } else {
+                None
+            };
+        raw.iter()
+            .enumerate()
+            .map(|(row, &v)| {
+                let non_finite = || Error::NonFinite {
+                    row: row + 1,
+                    column: index + 1,
+                    value: v,
+                };
+                let v = if v.is_nan() {
+                    match policy.nan {
+                        OnNan::Error => return Err(non_finite()),
+                        OnNan::Missing => return Ok(None),
+                    }
+                } else if v.is_infinite() {
+                    match (policy.infinite, range) {
+                        (OnInfinite::Missing, _) => return Ok(None),
+                        (OnInfinite::ClampToRange, Some((lo, hi))) => {
+                            if v > 0.0 {
+                                hi
+                            } else {
+                                lo
+                            }
+                        }
+                        _ => return Err(non_finite()),
+                    }
+                } else {
+                    v
+                };
+                Ok(policy.trimming.contains(v).then_some(v))
+            })
+            .collect()
+    }
+
+    /// The samples whose values are present under `policy`, from three
+    /// coordinate columns and a value column (0-based), with their rows.
+    ///
+    /// Coordinates are never trimmed (D-022): every coordinate must be
+    /// finite, whether or not its row's value is present.
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if a column does not exist;
+    /// [`Error::NonFinite`] for a non-finite coordinate, or a non-finite value
+    /// the policy rejects (see [`GslibData::extract`]).
     pub fn samples(
         &self,
         x_col: usize,
         y_col: usize,
         z_col: usize,
         value_col: usize,
-    ) -> Result<Vec<Sample>> {
-        crate::sample::zip_samples(&self.points(x_col, y_col, z_col)?, &self.column(value_col)?)
+        policy: &Extraction,
+    ) -> Result<PresentSamples> {
+        let values = self.extract(value_col, policy)?;
+        for col in [x_col, y_col, z_col] {
+            if let Some((row, &value)) = self
+                .column(col)?
+                .iter()
+                .enumerate()
+                .find(|(_, v)| !v.is_finite())
+            {
+                return Err(Error::NonFinite {
+                    row: row + 1,
+                    column: col + 1,
+                    value,
+                });
+            }
+        }
+        let mut samples = Vec::new();
+        let mut rows = Vec::new();
+        for (row, (point, value)) in self
+            .points(x_col, y_col, z_col)?
+            .into_iter()
+            .zip(values)
+            .enumerate()
+        {
+            if let Some(v) = value {
+                samples.push(Sample::new(point, v)?);
+                rows.push(row);
+            }
+        }
+        Ok(PresentSamples {
+            samples,
+            rows,
+            total_rows: self.nrows(),
+        })
     }
 
     /// A copy with one more column appended.
@@ -155,6 +402,16 @@ impl GslibData {
             ))
         }
     }
+}
+
+/// The smallest and largest finite values of `raw` within `trimming`.
+fn clamp_range(raw: &[f64], trimming: Trimming) -> Option<(f64, f64)> {
+    raw.iter()
+        .copied()
+        .filter(|&v| v.is_finite() && trimming.contains(v))
+        .fold(None, |acc, v| {
+            Some(acc.map_or((v, v), |(lo, hi): (f64, f64)| (lo.min(v), hi.max(v))))
+        })
 }
 
 /// Parse a value, accepting Fortran `D`/`d` exponents (`1.5D+02`).
@@ -314,7 +571,9 @@ mod tests {
     fn missing_columns_are_errors() {
         let d = parse_gslib(SAMPLE).unwrap();
         assert!(d.column(3).is_err(), "no fourth column");
-        assert!(d.samples(0, 1, 1, 3).is_err(), "no value column");
+        let all = Extraction::new(Trimming::NONE);
+        assert!(d.samples(0, 1, 1, 3, &all).is_err(), "no value column");
+        assert!(d.extract(3, &all).is_err(), "no fourth column to extract");
     }
 
     #[test]
@@ -351,11 +610,265 @@ mod tests {
         );
     }
 
+    /// Two variables and coordinates, with a sentinel, a NaN and infinities.
+    const MIXED: &str = "mixed\n4\nx\ny\na\nb\n\
+        0 0 1.0 5.0\n\
+        1 0 -999 6.0\n\
+        2 0 3.0 -999\n\
+        3 0 NaN 7.0\n\
+        4 0 inf 8.0\n\
+        5 0 -inf 9.0\n";
+
+    fn values(text: &str, column: usize, policy: &Extraction) -> Result<Vec<Option<f64>>> {
+        parse_gslib(text)?.extract(column, policy)
+    }
+
+    fn one_column(values: &str) -> String {
+        let rows: Vec<&str> = values.split_whitespace().collect();
+        format!("t\n1\nv\n{}\n", rows.join("\n"))
+    }
+
+    #[test]
+    fn trimming_limits_are_validated() {
+        assert!(Trimming::limits(f64::NAN, 1.0).is_err(), "NaN tmin");
+        assert!(Trimming::limits(0.0, f64::NAN).is_err(), "NaN tmax");
+        assert!(Trimming::limits(1.0, 1.0).is_err(), "empty interval");
+        assert!(Trimming::limits(2.0, 1.0).is_err(), "reversed");
+        let open = Trimming::limits(f64::NEG_INFINITY, f64::INFINITY).unwrap();
+        assert!(
+            open.contains(-1.0e300) && open.contains(1.0e300),
+            "infinite limits"
+        );
+        assert_eq!(Trimming::NONE.bounds(), None);
+    }
+
+    #[test]
+    fn trimming_is_half_open() {
+        // M4: v = tmin is present, v = tmax is not.
+        let t = Trimming::limits(0.0, 10.0).unwrap();
+        let got = values(&one_column("-0.5 0 5 10 10.5"), 0, &Extraction::new(t)).unwrap();
+        assert_eq!(got, vec![None, Some(0.0), Some(5.0), None, None]);
+    }
+
+    #[test]
+    fn sentinels_are_data_until_trimmed() {
+        // M1/M2: with no limits a sentinel is an ordinary value; the CLI's
+        // sentinel guard (M6) is what stops it reaching an algorithm.
+        let text = one_column("1 -999 3");
+        let none = Extraction::new(Trimming::NONE);
+        assert_eq!(
+            values(&text, 0, &none).unwrap(),
+            vec![Some(1.0), Some(-999.0), Some(3.0)]
+        );
+        let gslib = Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap());
+        assert_eq!(
+            values(&text, 0, &gslib).unwrap(),
+            vec![Some(1.0), None, Some(3.0)]
+        );
+    }
+
+    #[test]
+    fn non_finite_values_are_errors_by_default() {
+        // M5: the error names the 1-based row and column.
+        let policy = Extraction::new(Trimming::NONE);
+        match values(&one_column("1 2 NaN"), 0, &policy) {
+            Err(Error::NonFinite {
+                row: 3,
+                column: 1,
+                value,
+            }) => assert!(value.is_nan()),
+            other => panic!("expected a NaN error at row 3, got {other:?}"),
+        }
+        match values(&one_column("1 -inf"), 0, &policy) {
+            Err(Error::NonFinite {
+                row: 2,
+                column: 1,
+                value,
+            }) => {
+                assert!(value.is_infinite() && value.is_sign_negative());
+            }
+            other => panic!("expected an infinity error at row 2, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_finite_values_can_be_missing() {
+        let policy = Extraction {
+            nan: OnNan::Missing,
+            infinite: OnInfinite::Missing,
+            ..Extraction::new(Trimming::NONE)
+        };
+        assert_eq!(
+            values(MIXED, 2, &policy).unwrap(),
+            vec![Some(1.0), Some(-999.0), Some(3.0), None, None, None]
+        );
+        // Each policy covers only its own kind of value.
+        let nan_only = Extraction {
+            nan: OnNan::Missing,
+            ..Extraction::new(Trimming::NONE)
+        };
+        assert!(
+            matches!(
+                values(MIXED, 2, &nan_only),
+                Err(Error::NonFinite { row: 5, .. })
+            ),
+            "infinity still an error"
+        );
+        let inf_only = Extraction {
+            infinite: OnInfinite::Missing,
+            ..Extraction::new(Trimming::NONE)
+        };
+        assert!(
+            matches!(
+                values(MIXED, 2, &inf_only),
+                Err(Error::NonFinite { row: 4, .. })
+            ),
+            "NaN still an error"
+        );
+    }
+
+    #[test]
+    fn infinities_clamp_to_the_trimmed_finite_range() {
+        // M5: ±Inf take the largest and smallest finite values that the
+        // limits keep, so −999 is not the minimum here.
+        let policy = Extraction {
+            nan: OnNan::Missing,
+            infinite: OnInfinite::ClampToRange,
+            ..Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap())
+        };
+        assert_eq!(
+            values(MIXED, 2, &policy).unwrap(),
+            vec![Some(1.0), None, Some(3.0), None, Some(3.0), Some(1.0)]
+        );
+        // Without limits the sentinel is data, and so the minimum.
+        let untrimmed = Extraction {
+            trimming: Trimming::NONE,
+            ..policy
+        };
+        assert_eq!(values(MIXED, 2, &untrimmed).unwrap()[5], Some(-999.0));
+        // Nothing finite to clamp to.
+        let clamp = Extraction {
+            infinite: OnInfinite::ClampToRange,
+            ..Extraction::new(Trimming::NONE)
+        };
+        assert!(
+            matches!(
+                values(&one_column("inf -inf"), 0, &clamp),
+                Err(Error::InvalidInput { .. })
+            ),
+            "no finite values"
+        );
+        let trimmed_away = Extraction {
+            trimming: Trimming::limits(10.0, 20.0).unwrap(),
+            ..clamp
+        };
+        assert!(
+            values(&one_column("1 inf"), 0, &trimmed_away).is_err(),
+            "no finite value within the limits"
+        );
+        // A column without infinities needs no finite value.
+        assert_eq!(
+            values(&one_column("1"), 0, &trimmed_away).unwrap(),
+            vec![None]
+        );
+    }
+
+    #[test]
+    fn non_finite_policy_applies_before_trimming() {
+        // M9: GSLIB trims an infinity by its limits (F-010); here it is an
+        // error under the default policy even though the limits exclude it.
+        let policy = Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap());
+        assert!(
+            matches!(
+                values(&one_column("1 inf"), 0, &policy),
+                Err(Error::NonFinite { row: 2, .. })
+            ),
+            "+Inf beyond tmax"
+        );
+        assert!(
+            matches!(
+                values(&one_column("NaN 1"), 0, &policy),
+                Err(Error::NonFinite { row: 1, .. })
+            ),
+            "NaN with finite limits"
+        );
+    }
+
+    #[test]
+    fn missingness_is_per_cell() {
+        // M7: each variable of a record is trimmed on its own.
+        let d = parse_gslib(MIXED).unwrap();
+        let policy = Extraction {
+            nan: OnNan::Missing,
+            infinite: OnInfinite::Missing,
+            ..Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap())
+        };
+        let a = d.extract(2, &policy).unwrap();
+        let b = d.extract(3, &policy).unwrap();
+        assert_eq!(a, vec![Some(1.0), None, Some(3.0), None, None, None]);
+        assert_eq!(
+            b,
+            vec![Some(5.0), Some(6.0), None, Some(7.0), Some(8.0), Some(9.0)]
+        );
+    }
+
+    #[test]
+    fn samples_keep_present_values_and_their_rows() {
+        let d = parse_gslib(MIXED).unwrap();
+        let policy = Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap());
+        let present = d.samples(0, 1, 1, 3, &policy).unwrap();
+        assert_eq!(present.rows(), [0, 1, 3, 4, 5]);
+        assert_eq!(present.total_rows(), 6);
+        let vs: Vec<f64> = present.samples().iter().map(Sample::value).collect();
+        assert_eq!(vs, vec![5.0, 6.0, 7.0, 8.0, 9.0]);
+        assert_eq!(present.samples()[1].location(), Point3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn coordinates_are_never_trimmed() {
+        // D-022: a coordinate equal to a sentinel is still a coordinate.
+        let text = "t\n2\nx\nv\n-999 1\n0 2\n";
+        let policy = Extraction::new(Trimming::limits(-998.0, 1.0e21).unwrap());
+        let present = parse_gslib(text)
+            .unwrap()
+            .samples(0, 0, 0, 1, &policy)
+            .unwrap();
+        assert_eq!(present.rows(), [0, 1]);
+        assert_eq!(
+            present.samples()[0].location(),
+            Point3::new(-999.0, -999.0, -999.0)
+        );
+        // A non-finite coordinate is an error naming its row and column,
+        // even in a row whose value is missing.
+        let nan_text = "t\n4\nx\ny\nz\nv\n0 0 0 1\n0 0 0 2\n0 0 0 -999\n";
+        for (column, row) in [(1, 3), (2, 2), (3, 1)] {
+            let d = parse_gslib(nan_text).unwrap();
+            let mut values: Vec<f64> = d.rows().flatten().copied().collect();
+            values[(row - 1) * 4 + column - 1] = f64::NAN;
+            let d = GslibData::new("t", d.names().to_vec(), values).unwrap();
+            match d.samples(0, 1, 2, 3, &policy) {
+                Err(Error::NonFinite {
+                    row: r, column: c, ..
+                }) => {
+                    assert_eq!((r, c), (row, column), "NaN coordinate");
+                }
+                other => panic!("expected a NaN coordinate error, got {other:?}"),
+            }
+        }
+    }
+
     proptest! {
         #[test]
         fn format_then_parse_roundtrips(
             ncols in 1_usize..5,
-            raw in prop::collection::vec(prop::num::f64::NORMAL | prop::num::f64::ZERO, 0..40),
+            // M1: sentinel codes and huge values survive unchanged.
+            raw in prop::collection::vec(
+                prop_oneof![
+                    4 => prop::num::f64::NORMAL | prop::num::f64::ZERO,
+                    1 => prop::sample::select(vec![-999.0, -99.0, -1.0, 1.0e21, -1.0e21]),
+                ],
+                0..40,
+            ),
         ) {
             let whole_rows = raw.len() - raw.len() % ncols;
             let values: Vec<f64> = raw.into_iter().take(whole_rows).collect();

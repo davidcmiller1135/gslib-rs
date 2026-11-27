@@ -36,6 +36,18 @@ pub enum Error {
         reason: String,
     },
 
+    /// A data value is NaN or infinite, and the extraction policy does not
+    /// turn it into a missing value.
+    #[error("row {row}, column {column}: {value} is not finite")]
+    NonFinite {
+        /// 1-based data row (not counting the header).
+        row: usize,
+        /// 1-based column.
+        column: usize,
+        /// The offending value.
+        value: f64,
+    },
+
     /// Two inputs that must correspond element-by-element do not.
     #[error("{what}: lengths differ ({left} vs {right})")]
     LengthMismatch {
