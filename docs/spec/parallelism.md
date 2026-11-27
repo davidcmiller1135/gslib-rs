@@ -43,13 +43,16 @@ letting results depend on the number of threads or the hardware.
 ## Decisions so far
 
 - **Thread pool** (D-029): `rayon`.
+- **Location** (D-030): `gslib_rs::parallel` behind an opt-in `parallel`
+  feature, mapping over the core's pure per-item functions; the CLI enables
+  it.
 
 ## Open questions (with recommendations)
 
 1. ~~Thread pool~~ (D-029: `rayon`). Was: `rayon` *(recommended: work stealing, `par_iter` on
    slices, mature, permissive licence, widely audited)* or only
    `std::thread::scope` (no dependency, but manual chunking everywhere).
-2. **Where the parallel loops live.**
+2. ~~Where the parallel loops live~~ (D-030). Was: **Where the parallel loops live.**
    - *Recommended:* a boundary module `gslib_rs::parallel` behind an opt-in
      `parallel` feature. It holds parallel maps over the pure per-item
      functions: kriging at many targets, many realizations, the pair loop's

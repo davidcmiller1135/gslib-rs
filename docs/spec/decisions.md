@@ -1027,3 +1027,30 @@ From `vendor/gslib-2.0/src/`:
     deny check` when it is added.
   - Determinism never relies on the scheduler: every reduction has a fixed
     order (question 3), and errors are reported in item order (P2).
+
+## D-030: Parallel loops live in an opt-in library module
+- Status: decided
+- Topic: parallelism.md
+- Question: Where do the parallel loops live?
+- Options: a library module behind an opt-in feature; the same module on by
+  default; the CLI only.
+- Decision: **`gslib_rs::parallel`, behind a `parallel` cargo feature that is
+  off by default.** It holds parallel maps over the core's pure per-item
+  functions: kriging at many targets, blocks of pairs, and realizations. The
+  CLI enables the feature.
+- Rationale:
+  - It keeps parallel execution at the edge (`AGENTS.md`, *Isolate
+    boundaries*), and the core and the default build free of `rayon`.
+  - Library users and future bindings get the deterministic loops (the
+    fixed-order reductions, errors in item order) without rewriting them,
+    which the CLI-only option would force.
+- Consequences:
+  - The core's algorithms stay sequential and expose per-item functions
+    that the parallel module maps over. A parallel entry point must equal its
+    sequential counterpart (P1–P3).
+  - Builds and checks cover both configurations. Through the CLI, workspace
+    feature unification turns `parallel` on for `cargo test --workspace`,
+    and the existing `cargo clippy -p gslib_rs --no-default-features` check
+    covers the build without it.
+  - The sequential tests of each algorithm must still run without the
+    feature.
