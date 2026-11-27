@@ -1080,3 +1080,29 @@ From `vendor/gslib-2.0/src/`:
   - With pruning (question 4), a block is a set of rows (first data) with
     their partners found through the super-block, enumerated in a fixed
     order.
+
+## D-032: The experimental variogram always prunes far pairs
+- Status: decided
+- Topic: parallelism.md
+- Question: Should the experimental variogram skip pairs beyond its largest
+  lag, finding partners through the super-block?
+- Options: always prune; prune above a size threshold; no pruning.
+- Decision: **always prune**, sequentially and in parallel. Rows are taken
+  in D-031's fixed blocks; each row's partners come from a super-block
+  search within the lag scheme's largest distance, in a fixed order (the
+  search's order, D-024).
+- Rationale: one enumeration, so one numerical definition for every data
+  size. A size threshold would choose between two definitions whose last
+  bits differ, by data size. The super-block costs about 1.5 ms for 20 000
+  data (search spec step 2), which is negligible even for tiny inputs.
+- Consequences:
+  - `LagScheme` gains the largest separation any class admits. For GSLIB's
+    `CentredLags` that is `(nlag + 0.5)·xlag`; for `LagClasses`, its
+    maximum distance.
+  - **Pruning must be a superset.** The search radius is widened by a small
+    relative margin, and the lag scheme's own `classes(h)` still decides
+    each pair, so a pair exactly at the cut-off is never lost to rounding
+    between `q ≤ r²` and `h`. A property test (P4) checks that every lag's
+    pair count equals the unpruned loop's.
+  - The zero-distance class and overlapping lags are unchanged, since
+    pruning only removes pairs that belong to no class.

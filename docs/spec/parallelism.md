@@ -50,6 +50,9 @@ letting results depend on the number of threads or the hardware.
   the algorithm, not the thread count; each block sums sequentially and the
   partial sums are combined in block order. The sequential path uses the
   same blocks, so both agree bit for bit.
+- **Pruning** (D-032): always on. Partners come from a super-block search
+  within the lag scheme's largest distance, widened by a small margin, and
+  the lag scheme still decides each pair.
 
 ## Open questions (with recommendations)
 
@@ -75,7 +78,7 @@ letting results depend on the number of threads or the hardware.
    - Either way, the parallel result may differ from today's sequential one
      in the last bits (a different but fixed order). It must still pass the
      `gamv` parity fixtures at their D-010 tolerances.
-4. **Pruning pairs by distance.** Pairs beyond GSLIB's cut-off
+4. ~~Pruning~~ (D-032). Was: **Pruning pairs by distance.** Pairs beyond GSLIB's cut-off
    `(nlag + 0.5)·xlag` contribute nothing.
    - *Recommended:* enumerate pairs through the super-block, so far pairs are
      never examined, with a property test that the counted pairs are exactly
