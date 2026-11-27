@@ -73,8 +73,9 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
   the archive hash is replaced by `source_manifest_sha256`, the SHA-256 of
   `vendor/gslib-2.0/MANIFEST.sha256`. The harness fails if any field is
   missing, if `case.toml` no longer matches its recorded hash, or if the
-  compiler flags lack `-fdefault-real-8`/`-fdefault-double-8`. Implemented in
-  `oracle-case`.
+  compiler flags lack `-fdefault-real-8`/`-fdefault-double-8`. Provenance also
+  records `recipe_sha256`, a content hash of the recipe that survives squash
+  merges (D-014). Implemented in `oracle-case`.
 - **R7 Deterministic comparison.** Structure (shape, names, missing positions)
   must match exactly. Values: by default, relative 1e-12 for direct formulas
   and k·cond(A)·ε for kriging results (k to be calibrated, D-010). Overrides
@@ -133,7 +134,7 @@ step weakens a lint or tolerance.
    deterministic, writing a note per suite (R4).
    - Tests: the same seed gives byte-identical output; each suite contains
      the edge cases it claims.
-4. **vmodel.**
+4. **vmodel** (done: 8 fixtures, F-006; tolerance default confirmed, D-015).
    - Work: `.par` generator (layout read from the source); reader for its
      output; comparison through `VariogramModel::gamma` along GSLIB's
      directions.

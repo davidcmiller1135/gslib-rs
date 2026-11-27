@@ -1,0 +1,27 @@
+schema = 1
+program = "vmodel"
+description = "Power structure with a nugget. Documents a GSLIB 2.0 defect: the power model loses its nugget (F-006). gslib-rs keeps it."
+
+[parameters]
+nlag = 20
+nugget = 0.1
+directions = [
+    { azimuth = 0.0, dip = 0.0, lag = 1.0 },
+    { azimuth = 90.0, dip = 0.0, lag = 2.0 },
+]
+structures = [{ kind = 4, cc = 0.5, angles = [0.0, 0.0, 0.0], ranges = [1.5, 1.5, 1.5] }]
+
+[[expected_deviations]]
+quantity = "gamma"
+divergence = "Power model nugget (ROADMAP §2)"
+reason = "COVA3.FOR adds cmax (which already contains c0) for each power structure, so vmodel's gam = maxcov - cov cancels the nugget: GSLIB reports gamma = cc * h^omega for h > 0. Measured offset: exactly c0 = 0.1 at all 42 rows with h > 0 (F-006)."
+
+[[expected_deviations]]
+quantity = "cov"
+divergence = "Power model covariance (ROADMAP §2)"
+reason = "GSLIB reports PMX - gamma with PMX = 999 (COVA3.FOR); gslib-rs has no covariance for the power model."
+
+[[expected_deviations]]
+quantity = "ro"
+divergence = "Power model covariance (ROADMAP §2)"
+reason = "ro is cov / maxcov, so it inherits the PMX convention."

@@ -1,0 +1,13 @@
+schema = 1
+program = "vmodel"
+description = "Spherical structure with a nugget, isotropic: the nugget jump at the origin, the curve, and the sill beyond the range, along three axes (including vertical)."
+
+[parameters]
+nlag = 15
+nugget = 0.1
+directions = [
+    { azimuth = 0.0, dip = 0.0, lag = 1.0 },
+    { azimuth = 90.0, dip = 0.0, lag = 1.0 },
+    { azimuth = 0.0, dip = -90.0, lag = 1.0 },
+]
+structures = [{ kind = 1, cc = 0.9, angles = [0.0, 0.0, 0.0], ranges = [10.0, 10.0, 10.0] }]

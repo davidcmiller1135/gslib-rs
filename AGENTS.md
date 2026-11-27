@@ -163,8 +163,9 @@ Further rules:
   build-time changes are applied to a copy. Answer questions about GSLIB's
   behaviour from this source, citing file and routine. Its licence notice is
   in `NOTICE`.
-- **Reference fixtures:** not yet built. Planned location is
-  `tests/fixtures/gslib/`, each fixture with a provenance note: compiler and
-  flags, source patches, input data, and parameter file
+- **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel` so
+  far). To add one, write its `case.toml`, commit any recipe changes, then run
+  `cargo xtask oracle generate --program <name>` (needs gfortran); never edit
+  generated files by hand. `harness/` compares gslib-rs against them
   (`docs/spec/harness.md`).
 - **Roadmap, divergences, provenance ledger:** `docs/ROADMAP.md`.

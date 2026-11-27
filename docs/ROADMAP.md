@@ -103,6 +103,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
 | Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
+| Power model nugget | **defect:** the nugget cancels out of γ (`cova3` puts `c0` in `cmax`, F-006) | the nugget applies at every h > 0 | not planned (GSLIB defect) |
 
 ## 3. Validation strategy
 

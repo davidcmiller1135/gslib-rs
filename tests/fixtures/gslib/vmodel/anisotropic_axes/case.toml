@@ -1,0 +1,13 @@
+schema = 1
+program = "vmodel"
+description = "Anisotropic spherical structure (ranges 10/4/2) with zero angles, sampled only along the principal axes, where setrot's truncated pi enters quadratically and the default tolerance should hold."
+
+[parameters]
+nlag = 12
+nugget = 0.0
+directions = [
+    { azimuth = 0.0, dip = 0.0, lag = 1.0 },
+    { azimuth = 90.0, dip = 0.0, lag = 0.5 },
+    { azimuth = 0.0, dip = -90.0, lag = 0.25 },
+]
+structures = [{ kind = 1, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [10.0, 4.0, 2.0] }]

@@ -1,0 +1,11 @@
+# Written by `cargo xtask oracle generate`. Do not edit.
+schema = 1
+source_manifest_sha256 = "ba4fdf5e629e413b157c3bf58ae4f712fd7dbbb4e79cb269e6f59469bf610f12"
+compiler = "GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+compiler_flags = ["-fdefault-real-8", "-fdefault-double-8", "-std=legacy", "-fno-automatic", "-O0", "-ffp-contract=off", "-ffixed-line-length-none"]
+rewrite_rules_version = 1
+case_sha256 = "efeda103286c5648b6062466fb623d80111b6a5cba3b92700f586872afe32204"
+recipe_sha256 = "ab799d9646d134dbd3d1ac2b11bf5b46adf4711d0f0d1f5cb7c53bcf7a4418f6"
+recipe_commit = "502d6208747d37b9ed14e52354c81dde7e313080"
+generated_utc = "2026-11-27T17:29:01Z"
+command_line = ["target/debug/xtask", "oracle", "generate", "--program", "vmodel"]

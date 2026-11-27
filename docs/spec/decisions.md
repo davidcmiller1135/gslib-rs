@@ -410,3 +410,71 @@ this environment:
   differ from the data by up to 1e-6, so that comparison needs an absolute
   tolerance of 1e-6 justified by this line (D-010). Scores of tie-free data
   separated by more than 1e-6 are unaffected.
+
+## D-014: Identifying the recipe in provenance
+- Status: decided
+- Topic: harness.md (R6)
+- Question: Fixtures recorded `recipe_commit`, but squash merges leave branch
+  commits unreachable from `main`. How should provenance identify the recipe?
+- Options: a content hash of the recipe files; merge commits for fixture
+  PRs; land recipe changes on `main` before generating.
+- Decision: **content hash.** `provenance.toml` gains `recipe_sha256`, from
+  `oracle_case::recipe_sha256`: SHA-256 over the path and contents of every
+  file in `RECIPE_FILES` (`xtask/`, `oracle-case/`, the vendored manifest,
+  `Cargo.toml`, `Cargo.lock`). `recipe_commit` stays, as information only.
+- Rationale: content survives squashing, so provenance stays verifiable on
+  `main` indefinitely.
+- Consequences: the fixture-validation test notes any fixture whose
+  `recipe_sha256` differs from the current recipe; such fixtures are still
+  valid. Generation still refuses uncommitted recipe changes.
+
+## Finding F-006: vmodel parity (plan step 4, 2026-11-27)
+From `VMODEL/VMODEL.FOR` and the first fixtures (8 cases in
+`tests/fixtures/gslib/vmodel/`):
+
+**How `vmodel` works** (read from the source):
+- **Points:** for `il = 1..nlag+1` it evaluates
+  `(il−1)·(sin(azm)cos(dip), cos(azm)cos(dip), sin(dip))·lag`, with
+  `DEG2RAD = 3.14159265/180`.
+- **The repeated row:** row `il = 1` is written twice; the second evaluates
+  `0.0001·offset` but prints the first row's `h`.
+- **Columns:** the fourth is `ndir`, not the direction index;
+  `gam = maxcov − cov`.
+- **Power structures:** `a_hmax` holds ω, and `anis = a_hmin/ω`.
+
+**Results** (worst |Δ| ÷ sill, with the cause):
+| Case | Worst | Cause |
+|---|---|---|
+| Spherical, exponential, Gaussian isotropic; anisotropic along the axes | ≤ 1.4e-16 | machine precision |
+| Power without nugget | 1.1e-13 | GSLIB's `maxcov − cov` includes `PMX = 999`, costing ≈ ε·1000 absolute |
+| Anisotropic, rotated | 4.3e-12 | `setrot`'s π = 3.141592654; derived bound ≈ 1e-9 |
+| Hole effect | 8.974e-9 | `cova3`'s `PI = 3.14159265`; derived bound cc·(h/a)·3.59e-9 = 8.97e-9 at h/a = 2.5, which the measurement matches |
+
+**GSLIB defect: the power model loses its nugget.**
+- `COVA3.FOR` adds `cmax` (which contains `c0`) once per power structure, so
+  `gam = maxcov − cov` cancels the nugget.
+- Measured: GSLIB's γ is `cc·h^ω`, and gslib-rs's minus GSLIB's is exactly
+  `c0 = 0.1` (±6e-14) at all 42 points with h > 0.
+- gslib-rs keeps the nugget (`AGENTS.md`, *Do not treat legacy agreement as
+  proof of correctness*). Case `power_with_nugget` documents the defect as an
+  expected deviation.
+- Not yet checked: whether nested power structures (each adding `cmax`)
+  compound it.
+
+**The harness catches the bug it was built for:** restoring the pre-F-004
+Gaussian formula makes the vmodel test fail with 63 mismatches.
+
+## D-015: Calibrating the default tolerance for direct formulas
+- Status: decided
+- Topic: harness.md (R7, D-010)
+- Question: D-010's default of 1e-12 for direct formulas was provisional.
+  Does the evidence support it?
+- Options: keep 1e-12; tighten towards the measured errors; loosen.
+- Decision: **keep 1e-12**, applied relative to the sill for variogram
+  quantities.
+- Rationale: every vmodel case without a documented π divergence measured
+  ≤ 1.4e-16, except power at 1.1e-13 (explained by `PMX`). That leaves
+  margin without hiding real errors: the Gaussian bug alone produced 63
+  failures. The two π cases need explicit, derived overrides, and have them.
+- Consequences: k in k·cond(A)·ε (kriging) is still to be calibrated, in plan
+  step 7.
