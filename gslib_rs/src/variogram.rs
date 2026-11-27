@@ -8,7 +8,7 @@
 //! # Pair enumeration (`docs/spec/parallelism.md`, D-031, D-032)
 //!
 //! Pairs are not formed by a full double loop. Rows are taken in fixed
-//! blocks of [`ROWS_PER_BLOCK`]; each row's partners (later rows only, so
+//! blocks of 256 rows; each row's partners (later rows only, so
 //! each unordered pair once) come from a super-block search within the lag
 //! scheme's [`LagScheme::max_distance`], widened by a relative 1e-9 so no
 //! pair at the cut-off is lost to rounding. The lag scheme still decides
