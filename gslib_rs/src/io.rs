@@ -14,7 +14,7 @@ pub struct GslibData {
 }
 
 /// Read a simplified Geo‐EAS (GSLIB) ASCII file.
-/// 
+///
 /// # Errors
 /// Returns an `io::Error` if any I/O or parsing step fails.
 pub fn read_gslib<P: AsRef<Path>>(path: P) -> io::Result<GslibData> {
@@ -71,7 +71,11 @@ pub fn read_gslib<P: AsRef<Path>>(path: P) -> io::Result<GslibData> {
         }
     }
 
-    Ok(GslibData { title, var_names, data: arr })
+    Ok(GslibData {
+        title,
+        var_names,
+        data: arr,
+    })
 }
 
 /// Write a `GslibData` back to a simplified Geo-EAS file.
@@ -85,7 +89,12 @@ pub fn write_gslib<P: AsRef<Path>>(path: P, ds: &GslibData) -> io::Result<()> {
     let (nrec, nvar) = ds.data.dim();
     for i in 0..nrec {
         for j in 0..nvar {
-            write!(file, "{}{}", ds.data[(i, j)], if j + 1 < nvar { " " } else { "\n" })?;
+            write!(
+                file,
+                "{}{}",
+                ds.data[(i, j)],
+                if j + 1 < nvar { " " } else { "\n" }
+            )?;
         }
     }
     Ok(())

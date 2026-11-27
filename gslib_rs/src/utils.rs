@@ -1,11 +1,11 @@
 // gslib_rs/src/utils.rs
 
 use lazy_static::lazy_static;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rand::distributions::{Distribution, Uniform};
-use std::sync::Mutex;
+use rand::rngs::StdRng;
 use rand_distr::StandardNormal;
+use std::sync::Mutex;
 
 lazy_static! {
     static ref GLOBAL_RNG: Mutex<StdRng> = Mutex::new(StdRng::from_entropy());
@@ -55,7 +55,6 @@ mod tests {
     }
 }
 
-
 // gslib_rs/src/utils.rs
 // … above: imports, GLOBAL_RNG, set_seed, rand_f, strlen_f …
 
@@ -71,11 +70,7 @@ pub fn sort_em(vals: &mut [f64]) {
 pub fn dsort_em(keys: &mut [f64], vals: &mut [f64]) {
     assert_eq!(keys.len(), vals.len(), "dsort_em: lengths differ");
     // Zip, sort, unzip
-    let mut combined: Vec<(f64, f64)> = keys
-        .iter()
-        .cloned()
-        .zip(vals.iter().cloned())
-        .collect();
+    let mut combined: Vec<(f64, f64)> = keys.iter().cloned().zip(vals.iter().cloned()).collect();
     combined.sort_by(|(k1, _), (k2, _)| k1.partial_cmp(k2).unwrap_or(Ordering::Equal));
     for (i, (k, v)) in combined.into_iter().enumerate() {
         keys[i] = k;
@@ -187,9 +182,13 @@ pub fn randn() -> f64 {
 /// Check Fortran‐style name (chknam): 1st letter, <=8 chars, alphanumeric only.
 pub fn check_name(name: &str) -> bool {
     let s = name.trim();
-    if s.is_empty() || s.len() > 8 { return false; }
+    if s.is_empty() || s.len() > 8 {
+        return false;
+    }
     let mut chars = s.chars();
-    if !chars.next().unwrap().is_ascii_alphabetic() { return false; }
+    if !chars.next().unwrap().is_ascii_alphabetic() {
+        return false;
+    }
     chars.all(|c| c.is_ascii_alphanumeric())
 }
 
@@ -211,11 +210,10 @@ pub fn num_text(n: i32) -> String {
             2 => "nd",
             3 => "rd",
             _ => "th",
-        }
+        },
     };
     format!("{}{}", n, suffix)
 }
-
 
 #[cfg(test)]
 mod linear_tests {
@@ -268,7 +266,7 @@ mod linear_tests {
     fn test_check_name() {
         assert!(check_name("VAR1"));
         assert!(check_name("Abc123"));
-        assert!(!check_name("1BAD"));      // starts with digit
+        assert!(!check_name("1BAD")); // starts with digit
         assert!(!check_name("TOO_LONGNAME"));
         assert!(!check_name("INV@LID"));
     }
@@ -292,7 +290,3 @@ mod linear_tests {
         assert_eq!(num_text(123), "123rd");
     }
 }
-
-
-
-

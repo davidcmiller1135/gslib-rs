@@ -25,9 +25,7 @@ pub fn compute_empirical(
     let bin_width = hmax / (n_lags as f64);
 
     // lag‐class centers
-    let lag_centers: Vec<f64> = (0..n_lags)
-        .map(|i| bin_width * (i as f64 + 0.5))
-        .collect();
+    let lag_centers: Vec<f64> = (0..n_lags).map(|i| bin_width * (i as f64 + 0.5)).collect();
 
     let mut sum = vec![0.0; n_lags];
     let mut count = vec![0_usize; n_lags];
@@ -64,8 +62,7 @@ pub fn compute_empirical(
 /// Spherical variogram model:
 /// γ(h) = sill * [1.5*(h/a) - 0.5*(h/a)^3] for h < a, else sill.
 pub fn spherical_model(lags: &[f64], range: f64, sill: f64) -> Vec<f64> {
-    lags
-        .iter()
+    lags.iter()
         .map(|&h| {
             if h >= range {
                 sill
@@ -80,8 +77,7 @@ pub fn spherical_model(lags: &[f64], range: f64, sill: f64) -> Vec<f64> {
 /// Exponential variogram model:
 /// γ(h) = sill * [1 - exp(-3h/a)].
 pub fn exponential_model(lags: &[f64], range: f64, sill: f64) -> Vec<f64> {
-    lags
-        .iter()
+    lags.iter()
         .map(|&h| sill * (1.0 - (-3.0 * h / range).exp()))
         .collect()
 }

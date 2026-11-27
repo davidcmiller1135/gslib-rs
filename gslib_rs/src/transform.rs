@@ -2,16 +2,12 @@
 
 //! Data transformations: normal‐score, back‐transform, coordinate rotation.
 
+use statrs::distribution::{ContinuousCDF, Normal};
 use std::cmp::Ordering;
-use statrs::distribution::{Normal, ContinuousCDF};
-
 
 /// Map your raw data into standard‐normal scores via the “rank‐and‐invert” method
 /// (Fortran `nscore`).  If `weights` is `None`, uses equal weights.
-pub fn normal_score_transform(
-    data: &[f64],
-    weights: Option<&[f64]>,
-) -> Vec<f64> {
+pub fn normal_score_transform(data: &[f64], weights: Option<&[f64]>) -> Vec<f64> {
     let n = data.len();
     if n == 0 {
         return Vec::new();
@@ -43,8 +39,7 @@ pub fn normal_score_transform(
 
     // 4) invert via Normal(0,1).inverse_cdf
     let norm = Normal::new(0.0, 1.0).unwrap();
-    let sorted_scores: Vec<f64> =
-        positions.iter().map(|&p| norm.inverse_cdf(p)).collect();
+    let sorted_scores: Vec<f64> = positions.iter().map(|&p| norm.inverse_cdf(p)).collect();
 
     // 5) reorder back to original order
     let mut result = vec![0.0; n];
@@ -57,14 +52,10 @@ pub fn normal_score_transform(
 /// Simple back‐transform: given your original data‐vector `data` and
 /// the normal‐scores you previously computed `scores`, interpolate
 /// new normals `z` back to the original data scale.
-/// 
+///
 /// * `data` and `scores` must be the same length and correspond row‐by‐row.
 /// * If `z` lies outside the range of `scores`, returns the nearest endpoint.
-pub fn back_transform(
-    data: &[f64],
-    scores: &[f64],
-    z: &[f64],
-) -> Vec<f64> {
+pub fn back_transform(data: &[f64], scores: &[f64], z: &[f64]) -> Vec<f64> {
     assert_eq!(data.len(), scores.len(), "data/scores length mismatch");
     let n = data.len();
     if n == 0 || z.is_empty() {
@@ -76,61 +67,61 @@ pub fn back_transform(
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
     let scores_s: Vec<f64> = pairs.iter().map(|&(s, _)| s).collect();
-    let data_s:   Vec<f64> = pairs.iter().map(|&(_, d)| d).collect();
+    let data_s: Vec<f64> = pairs.iter().map(|&(_, d)| d).collect();
     let last = n - 1;
 
-    z.iter().map(|&zi| {
-        if zi <= scores_s[0] {
-            data_s[0]
-        } else if zi >= scores_s[last] {
-            data_s[last]
-        } else {
-            // find the bracket
-            let idx = scores_s.binary_search_by(|x| x.partial_cmp(&zi).unwrap_or(Ordering::Equal));
-            match idx {
-                Ok(i) => data_s[i],
-                Err(insert) => {
-                    let j = insert - 1;
-                    let t = (zi - scores_s[j]) / (scores_s[j + 1] - scores_s[j]);
-                    data_s[j] + t * (data_s[j + 1] - data_s[j])
+    z.iter()
+        .map(|&zi| {
+            if zi <= scores_s[0] {
+                data_s[0]
+            } else if zi >= scores_s[last] {
+                data_s[last]
+            } else {
+                // find the bracket
+                let idx =
+                    scores_s.binary_search_by(|x| x.partial_cmp(&zi).unwrap_or(Ordering::Equal));
+                match idx {
+                    Ok(i) => data_s[i],
+                    Err(insert) => {
+                        let j = insert - 1;
+                        let t = (zi - scores_s[j]) / (scores_s[j + 1] - scores_s[j]);
+                        data_s[j] + t * (data_s[j + 1] - data_s[j])
+                    }
                 }
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Convert a list of 2D points **from** the rotated system **to** the original system
 /// (Fortran `rotcoord` with `ireverse=1`).
-pub fn to_original(
-    rot_pts: &[(f64, f64)],
-    origin: (f64, f64),
-    angle_rad: f64,
-) -> Vec<(f64, f64)> {
+pub fn to_original(rot_pts: &[(f64, f64)], origin: (f64, f64), angle_rad: f64) -> Vec<(f64, f64)> {
     let (xorig, yorig) = origin;
     let (s, c) = (angle_rad.sin(), angle_rad.cos());
-    rot_pts.iter().map(|&(rx, ry)| {
-        let xx = xorig - ry * s + rx * c;
-        let yy = yorig + ry * c + rx * s;
-        (xx, yy)
-    }).collect()
+    rot_pts
+        .iter()
+        .map(|&(rx, ry)| {
+            let xx = xorig - ry * s + rx * c;
+            let yy = yorig + ry * c + rx * s;
+            (xx, yy)
+        })
+        .collect()
 }
 
 /// Convert a list of 2D points **from** the original system **to** the rotated system
 /// (Fortran `rotcoord` with `ireverse≠1`).
-pub fn to_rotated(
-    pts: &[(f64, f64)],
-    origin: (f64, f64),
-    angle_rad: f64,
-) -> Vec<(f64, f64)> {
+pub fn to_rotated(pts: &[(f64, f64)], origin: (f64, f64), angle_rad: f64) -> Vec<(f64, f64)> {
     let (xorig, yorig) = origin;
     let (s, c) = (angle_rad.sin(), angle_rad.cos());
-    pts.iter().map(|&(xx, yy)| {
-        let dy = yy - yorig;
-        let dx = xx - xorig;
-        let rx = dy * s + dx * c;
-        let ry = dy * c - dx * s;
-        (rx, ry)
-    }).collect()
+    pts.iter()
+        .map(|&(xx, yy)| {
+            let dy = yy - yorig;
+            let dx = xx - xorig;
+            let rx = dy * s + dx * c;
+            let ry = dy * c - dx * s;
+            (rx, ry)
+        })
+        .collect()
 }
 
 /// Placeholder for the full cell‐declustering routine (`declus.for`).

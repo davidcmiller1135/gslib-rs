@@ -2,15 +2,13 @@
 
 //! Geostatistical simulation: Sequential Gaussian Simulation (SGS).
 
+use crate::utils::{rand_f, randn, solve_kriging_system};
 use nalgebra::{DMatrix, DVector};
-use crate::utils::{solve_kriging_system, rand_f, randn};
 use std::cmp::Ordering;
 
 use crate::variogram::compute_empirical;
 use std::collections::HashSet;
 use std::f64;
-
-
 
 /// Euclidean distance in 3D.
 fn distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
@@ -55,9 +53,7 @@ where
         let mut cond_vals = data_vals.to_vec();
 
         // 2) Generate a random path over the sim nodes
-        let mut order: Vec<(f64, usize)> = (0..n_sim)
-            .map(|i| (rand_f(), i))
-            .collect();
+        let mut order: Vec<(f64, usize)> = (0..n_sim).map(|i| (rand_f(), i)).collect();
         order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
         let path: Vec<usize> = order.into_iter().map(|(_, idx)| idx).collect();
 
@@ -138,9 +134,6 @@ mod tests {
     }
 }
 
-
-
-
 /// Sequential Indicator Simulation (single threshold).
 ///
 /// - `data_coords` / `data_vals`: conditioning (real) data.
@@ -170,7 +163,11 @@ where
 {
     let n_data = data_coords.len();
     let n_sim = sim_coords.len();
-    assert_eq!(data_vals.len(), n_data, "data_coords/data_vals length mismatch");
+    assert_eq!(
+        data_vals.len(),
+        n_data,
+        "data_coords/data_vals length mismatch"
+    );
     assert!(n_data > 0, "sisim needs at least one conditioning datum");
 
     // Precompute the indicator coding of the conditioning data
@@ -189,9 +186,7 @@ where
         let mut cond_inds = init_inds.clone();
 
         // 2) random path
-        let mut order: Vec<(f64, usize)> = (0..n_sim)
-            .map(|i| (rand_f(), i))
-            .collect();
+        let mut order: Vec<(f64, usize)> = (0..n_sim).map(|i| (rand_f(), i)).collect();
         order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         let path: Vec<usize> = order.into_iter().map(|(_, i)| i).collect();
 
@@ -252,28 +247,28 @@ mod sisim_tests {
     /// indicators should all be 1.
     #[test]
     fn test_sisim_all_ones() {
-        let data_coords = vec![(0.0,0.0,0.0)];
-        let data_vals   = vec![0.5];
-        let sim_coords  = vec![(1.0,0.0,0.0),(2.0,0.0,0.0)];
+        let data_coords = vec![(0.0, 0.0, 0.0)];
+        let data_vals = vec![0.5];
+        let sim_coords = vec![(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)];
         let cov_const = |_| 1.0;
         let reps = sisim(&data_coords, &data_vals, &sim_coords, 1.0, cov_const, 5);
         assert_eq!(reps.len(), 5);
         for sim in reps {
-            assert_eq!(sim, vec![1,1]);
+            assert_eq!(sim, vec![1, 1]);
         }
     }
 
     /// If all data ≥ threshold, indicators should all be 0.
     #[test]
     fn test_sisim_all_zeros() {
-        let data_coords = vec![(0.0,0.0,0.0)];
-        let data_vals   = vec![2.0];
-        let sim_coords  = vec![(1.0,0.0,0.0),(2.0,0.0,0.0)];
+        let data_coords = vec![(0.0, 0.0, 0.0)];
+        let data_vals = vec![2.0];
+        let sim_coords = vec![(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)];
         let cov_const = |_| 1.0;
         let reps = sisim(&data_coords, &data_vals, &sim_coords, 1.0, cov_const, 3);
         assert_eq!(reps.len(), 3);
         for sim in reps {
-            assert_eq!(sim, vec![0,0]);
+            assert_eq!(sim, vec![0, 0]);
         }
     }
 
@@ -307,7 +302,6 @@ mod sisim_tests {
 // gslib_rs/src/simulation.rs
 
 // Geostatistical simulation: SASIM (simulated-annealing)
-
 
 // ----------------------------------
 // SASIM PARAMS
@@ -383,19 +377,11 @@ pub fn sasim(
     // 3a) Histogram target (as proportions)
     let mut target_hist = Vec::new();
     if params.obj_components[0] {
-        let (hmin, hmax) = params
-            .hist_range
-            .unwrap_or_else(|| {
-                let mn = data_vals
-                    .iter()
-                    .cloned()
-                    .fold(f64::INFINITY, f64::min);
-                let mx = data_vals
-                    .iter()
-                    .cloned()
-                    .fold(f64::NEG_INFINITY, f64::max);
-                (mn, mx)
-            });
+        let (hmin, hmax) = params.hist_range.unwrap_or_else(|| {
+            let mn = data_vals.iter().cloned().fold(f64::INFINITY, f64::min);
+            let mx = data_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (mn, mx)
+        });
         let hist = compute_histogram(data_vals, params.hist_bins, hmin, hmax);
         target_hist = hist
             .into_iter()
@@ -450,8 +436,8 @@ pub fn sasim(
         // 4a) Initialize the field by sampling data_vals at random
         let mut field: Vec<f64> = (0..n_sim)
             .map(|_| {
-                let idx = ((rand_f() * data_vals.len() as f64).floor() as usize)
-                    .min(data_vals.len() - 1);
+                let idx =
+                    ((rand_f() * data_vals.len() as f64).floor() as usize).min(data_vals.len() - 1);
                 data_vals[idx]
             })
             .collect();
@@ -481,8 +467,8 @@ pub fn sasim(
                 }
                 // propose a new value
                 let old = field[i];
-                let j = ((rand_f() * data_vals.len() as f64).floor() as usize)
-                    .min(data_vals.len() - 1);
+                let j =
+                    ((rand_f() * data_vals.len() as f64).floor() as usize).min(data_vals.len() - 1);
                 let new = data_vals[j];
                 field[i] = new;
 
@@ -529,7 +515,11 @@ fn generate_sim_coords(
     for ix in 0..nx {
         for iy in 0..ny {
             for iz in 0..nz {
-                coords.push((x0 + ix as f64 * dx, y0 + iy as f64 * dy, z0 + iz as f64 * dz));
+                coords.push((
+                    x0 + ix as f64 * dx,
+                    y0 + iy as f64 * dy,
+                    z0 + iz as f64 * dz,
+                ));
             }
         }
     }
@@ -617,8 +607,10 @@ fn compute_total_energy(
 
     // 3) Indicator‐semivariogram term
     if params.obj_components[2] {
-        let inds: Vec<f64> =
-            field.iter().map(|&v| if v < params.threshold { 1.0 } else { 0.0 }).collect();
+        let inds: Vec<f64> = field
+            .iter()
+            .map(|&v| if v < params.threshold { 1.0 } else { 0.0 })
+            .collect();
         let (_, sim_ii) = compute_empirical(
             sim_coords,
             &inds,

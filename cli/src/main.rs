@@ -1,13 +1,15 @@
 use clap::{Parser, Subcommand};
-use std::{error::Error, path::{Path, PathBuf}};
 use ndarray::Array1;
-
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 use gslib_rs::{
-    io::{read_gslib, write_gslib, GslibData},
-    variogram,
+    io::{GslibData, read_gslib, write_gslib},
     plot::plot_variogram,
     simulation::{sgsim, sisim},
+    variogram,
 };
 
 /// GSLIB-RS command-line interface
@@ -29,15 +31,15 @@ enum Commands {
         input: PathBuf,
 
         /// Maximum distance to consider
-        #[arg(short='d', long)]
+        #[arg(short = 'd', long)]
         max_dist: f64,
 
         /// Number of lag classes
-        #[arg(short='n', long)]
+        #[arg(short = 'n', long)]
         n_lags: usize,
 
         /// Optional CSV to write lag,semivar pairs
-        #[arg(short='o', long)]
+        #[arg(short = 'o', long)]
         out_csv: Option<PathBuf>,
 
         /// Fit and overlay a model ("spherical" or "exponential")
@@ -74,17 +76,24 @@ enum Commands {
 
     /// Sequential Indicator Simulation
     Sisim {
-        #[arg(long)] data: PathBuf,
-        #[arg(long)] sim: PathBuf,
-        #[arg(long)] threshold: f64,
-        #[arg(long, default_value_t = 1)] nsim: usize,
-        #[arg(long)] out_prefix: PathBuf,
+        #[arg(long)]
+        data: PathBuf,
+        #[arg(long)]
+        sim: PathBuf,
+        #[arg(long)]
+        threshold: f64,
+        #[arg(long, default_value_t = 1)]
+        nsim: usize,
+        #[arg(long)]
+        out_prefix: PathBuf,
     },
 
     /// SASIM (Simulated Annealing).  See `--help` for parameters.
     Sasim {
-        #[arg(long)] data: PathBuf,
-        #[arg(long)] out_prefix: PathBuf,
+        #[arg(long)]
+        data: PathBuf,
+        #[arg(long)]
+        out_prefix: PathBuf,
         // ... you can add flags here to capture SasimParams fields ...
     },
 }
@@ -107,7 +116,11 @@ fn read_checked(path: &Path, min_cols: usize, what: &str) -> Result<GslibData, B
 
 /// Columns 0..3 as (x, y, z).
 fn coords_of(ds: &GslibData) -> Coords {
-    ds.data.rows().into_iter().map(|r| (r[0], r[1], r[2])).collect()
+    ds.data
+        .rows()
+        .into_iter()
+        .map(|r| (r[0], r[1], r[2]))
+        .collect()
 }
 
 /// Read a data file with columns x, y, z, value.
@@ -134,7 +147,11 @@ fn write_realization(
     data.push_column(Array1::from(values).view())?;
     let mut var_names = sim_ds.var_names.clone();
     var_names.push(name);
-    let out = GslibData { title: title.to_string(), var_names, data };
+    let out = GslibData {
+        title: title.to_string(),
+        var_names,
+        data,
+    };
     write_gslib(path, &out)?;
     Ok(())
 }
@@ -147,7 +164,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Commands::Variogram { input, max_dist, n_lags, out_csv, model, plot } => {
+        Commands::Variogram {
+            input,
+            max_dist,
+            n_lags,
+            out_csv,
+            model,
+            plot,
+        } => {
             // 1) Read data (columns: x, y, z, value)
             let (_ds, coords, values) = read_data(&input)?;
 
@@ -158,14 +182,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let Some(path) = out_csv {
                 let mut wtr = csv::Writer::from_path(path)?;
                 wtr.write_record(["lag", "semivar"])?;
-                for (&h,&g) in lags.iter().zip(&semis) {
+                for (&h, &g) in lags.iter().zip(&semis) {
                     wtr.write_record(&[h.to_string(), g.to_string()])?;
                 }
                 wtr.flush()?;
             } else {
                 // fallback to stdout
                 println!("lag,semivar");
-                for (&h,&g) in lags.iter().zip(&semis) {
+                for (&h, &g) in lags.iter().zip(&semis) {
                     println!("{},{}", h, g);
                 }
             }
@@ -181,7 +205,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        Commands::Sgsim { data, sim, nsim, seed, out_prefix } => {
+        Commands::Sgsim {
+            data,
+            sim,
+            nsim,
+            seed,
+            out_prefix,
+        } => {
             if let Some(s) = seed {
                 gslib_rs::utils::set_seed(s);
             }
@@ -209,7 +239,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        Commands::Sisim { data, sim, threshold, nsim, out_prefix } => {
+        Commands::Sisim {
+            data,
+            sim,
+            threshold,
+            nsim,
+            out_prefix,
+        } => {
             let (ds_data, data_coords, data_vals) = read_data(&data)?;
             let ds_sim = read_checked(&sim, 3, "simulation-target")?;
             let sim_coords = coords_of(&ds_sim);
@@ -217,8 +253,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Default covariance model: exponential with unit sill
             let cov_func = |h: f64| (-h).exp();
 
-            let realizations =
-                sisim(&data_coords, &data_vals, &sim_coords, threshold, cov_func, nsim);
+            let realizations = sisim(
+                &data_coords,
+                &data_vals,
+                &sim_coords,
+                threshold,
+                cov_func,
+                nsim,
+            );
 
             for (i, sim_inds) in realizations.into_iter().enumerate() {
                 write_realization(

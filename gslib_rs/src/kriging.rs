@@ -2,8 +2,8 @@
 
 //! Kriging estimators: ordinary and simple kriging (cokriging stub).
 
-use nalgebra::{DMatrix, DVector};
 use crate::utils::{solve_kriging_system, solve_kriging_system_pivot};
+use nalgebra::{DMatrix, DVector};
 
 /// Euclidean distance in 3D.
 fn distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
@@ -93,8 +93,8 @@ where
     }
 
     // Solve (no pivoting)
-    let weights = solve_kriging_system(&mat, &rhs)
-        .expect("Simple kriging system could not be solved");
+    let weights =
+        solve_kriging_system(&mat, &rhs).expect("Simple kriging system could not be solved");
 
     // Estimate = mean + Σ w_i * (v_i - mean)
     weights
@@ -103,8 +103,6 @@ where
         .fold(mean, |acc, (&w, &v)| acc + w * (v - mean))
 }
 
-
-
 /// Simple Cokriging (no sum‐to‐one constraints):
 /// - `z_coords`, `z_vals`: primary-data locations & values
 /// - `y_coords`, `y_vals`: secondary-data locations & values
@@ -112,7 +110,7 @@ where
 /// - `cov_zy`: Z–Y cross‐covariance function CZY(h)
 /// - `cov_yy`: Y–Y covariance function CYY(h)
 /// - `m_z`, `m_y`: stationary means of Z and Y
-/// 
+///
 /// Returns the cokriged estimate at `target`.
 #[allow(clippy::too_many_arguments)]
 pub fn simple_cokriging<Z, Y, H>(
@@ -146,7 +144,7 @@ where
             let dx = z_coords[i].0 - z_coords[j].0;
             let dy = z_coords[i].1 - z_coords[j].1;
             let dz = z_coords[i].2 - z_coords[j].2;
-            let h = (dx*dx + dy*dy + dz*dz).sqrt();
+            let h = (dx * dx + dy * dy + dz * dz).sqrt();
             mat[(i, j)] = cov_zz(h);
         }
     }
@@ -156,7 +154,7 @@ where
             let dx = z_coords[i].0 - y_coords[j].0;
             let dy = z_coords[i].1 - y_coords[j].1;
             let dz = z_coords[i].2 - y_coords[j].2;
-            let h = (dx*dx + dy*dy + dz*dz).sqrt();
+            let h = (dx * dx + dy * dy + dz * dz).sqrt();
             let czy = cov_zy(h);
             mat[(i, n + j)] = czy;
             mat[(n + j, i)] = czy;
@@ -168,7 +166,7 @@ where
             let dx = y_coords[i].0 - y_coords[j].0;
             let dy = y_coords[i].1 - y_coords[j].1;
             let dz = y_coords[i].2 - y_coords[j].2;
-            let h = (dx*dx + dy*dy + dz*dz).sqrt();
+            let h = (dx * dx + dy * dy + dz * dz).sqrt();
             mat[(n + i, n + j)] = cov_yy(h);
         }
     }
@@ -179,23 +177,20 @@ where
         let dx = z_coords[i].0 - target.0;
         let dy = z_coords[i].1 - target.1;
         let dz = z_coords[i].2 - target.2;
-        rhs[i] = cov_zz((dx*dx + dy*dy + dz*dz).sqrt());
+        rhs[i] = cov_zz((dx * dx + dy * dy + dz * dz).sqrt());
     }
     for j in 0..m {
         let dx = y_coords[j].0 - target.0;
         let dy = y_coords[j].1 - target.1;
         let dz = y_coords[j].2 - target.2;
-        rhs[n + j] = cov_zy((dx*dx + dy*dy + dz*dz).sqrt());
+        rhs[n + j] = cov_zy((dx * dx + dy * dy + dz * dz).sqrt());
     }
-
 
     // Solve for weights (unconstrained), but if singular, return the primary mean:
     let w = match solve_kriging_system(&mat, &rhs) {
         Some(weights) => weights,
         None => return m_z,
     };
-
-
 
     // Build estimate: m_z + Σ w_i (Z_i - m_z) + Σ w_{n+j} (Y_j - m_y)
     let mut est = m_z;
@@ -216,8 +211,8 @@ mod cokrig_tests {
     /// estimate should equal m_z.
     #[test]
     fn test_simple_cokriging_constant() {
-        let zc = vec![(0.0,0.0,0.0)];
-        let yc = vec![(1.0,1.0,1.0)];
+        let zc = vec![(0.0, 0.0, 0.0)];
+        let yc = vec![(1.0, 1.0, 1.0)];
         let zv = vec![10.0];
         let yv = vec![20.0];
         let mz = 10.0;
@@ -227,17 +222,10 @@ mod cokrig_tests {
         let cy = |_| 1.0;
         let yy = |_| 1.0;
 
-        let est = simple_cokriging(
-            &zc, &zv,
-            &yc, &yv,
-            (2.0,2.0,2.0),
-            cz, cy, yy,
-            mz, my,
-        );
+        let est = simple_cokriging(&zc, &zv, &yc, &yv, (2.0, 2.0, 2.0), cz, cy, yy, mz, my);
         assert!((est - mz).abs() < 1e-12);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -302,6 +290,9 @@ mod tests {
     fn test_simple_kriging_single_datum_weight() {
         let est = simple_kriging(&[(0.0, 0.0, 0.0)], &[12.0], (1.0, 0.0, 0.0), exp_cov, 10.0);
         let expected = 10.0 + (-1.0f64).exp() * 2.0;
-        assert!((est - expected).abs() < EPS, "est = {est}, expected = {expected}");
+        assert!(
+            (est - expected).abs() < EPS,
+            "est = {est}, expected = {expected}"
+        );
     }
 }
