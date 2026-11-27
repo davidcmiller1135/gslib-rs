@@ -53,7 +53,10 @@ fn norm(v: [f64; 3]) -> f64 {
 }
 
 /// Orientation of an anisotropy ellipsoid, in degrees, using GSLIB's
-/// conventions (GSLIB book §II.3, `setrot.for`).
+/// conventions.
+///
+/// TODO(parity-verify): angle conventions recalled from memory; confirm
+/// against `setrot.for` and the GSLIB documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Angles {
     /// Azimuth of the major axis, clockwise from north (+y).
@@ -94,6 +97,10 @@ impl Ranges {
 /// This is GSLIB's `setrot`: `scaled_distance` returns GSLIB's
 /// `sqrt(sqdist(...))`, so a point at distance `ranges.minor` along the minor
 /// axis is at scaled distance `ranges.major`.
+///
+/// TODO(parity-verify): matrix written from memory of `setrot.for`; tests
+/// check its geometry, not agreement with the Fortran. GSLIB also clamps
+/// anisotropy ratios to `EPSLON`; here non-positive ranges are an error.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Anisotropy {
     rows: [[f64; 3]; 3],

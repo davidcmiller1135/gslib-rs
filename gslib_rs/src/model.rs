@@ -7,6 +7,9 @@ use crate::geometry::{Angles, Anisotropy, COINCIDENT, Point3, Ranges};
 
 /// The shape of one nested structure. Ranges are *practical* ranges, as in
 /// GSLIB: the exponential and Gaussian models reach 95% of their sill there.
+///
+/// TODO(parity-verify): formulas and type numbers recalled from memory of
+/// `cova3.for`; confirm against the source.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum Kind {
@@ -206,7 +209,8 @@ impl VariogramModel {
 ///
 /// Simple kriging, cokriging, and the sequential simulations need a
 /// covariance. GSLIB fakes one for the power model by subtracting γ from a
-/// large constant (`PMX = 999`); here that is a type error instead.
+/// large constant (`PMX`, recalled as 999; TODO(parity-verify)); here that
+/// is a type error instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CovarianceModel {
     model: VariogramModel,

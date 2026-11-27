@@ -5,7 +5,7 @@ use crate::geometry::Point3;
 use crate::sample::Sample;
 
 /// Use at most `max_samples` of the nearest samples within `radius`
-/// (GSLIB `ndmax`/`nodmax` and `radius`).
+/// (GSLIB `ndmax`/`nodmax` and `radius`; names recalled, TODO(parity-verify)).
 ///
 /// Distance is Euclidean. GSLIB's anisotropic search ellipsoid and octant
 /// search are not implemented yet.
