@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
-use ndarray::{Array2, Ix2};
+use ndarray::Array2;
 
 /// In‐memory representation of a GSLIB data file.
 pub struct GslibData {
@@ -95,7 +95,6 @@ pub fn write_gslib<P: AsRef<Path>>(path: P, ds: &GslibData) -> io::Result<()> {
 mod tests {
     use super::*;
     use ndarray::array;
-    use std::fs;
     use tempfile::NamedTempFile;
 
     /// Helper to create a small in-memory GSLIB file.

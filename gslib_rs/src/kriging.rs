@@ -110,6 +110,7 @@ where
 /// - `m_z`, `m_y`: stationary means of Z and Y
 /// 
 /// Returns the cokriged estimate at `target`.
+#[allow(clippy::too_many_arguments)]
 pub fn simple_cokriging<Z, Y, H>(
     z_coords: &[(f64, f64, f64)],
     z_vals: &[f64],

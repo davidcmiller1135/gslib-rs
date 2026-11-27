@@ -86,10 +86,9 @@ pub fn dsort_em(keys: &mut [f64], vals: &mut [f64]) {
 /// Exact-match lookup (Fortran `getindx.for`).
 /// Returns `Some(i)` if `sorted[i] == target`; otherwise `None`.
 pub fn get_index(sorted: &[f64], target: f64) -> Option<usize> {
-    match sorted.binary_search_by(|x| x.partial_cmp(&target).unwrap_or(Ordering::Equal)) {
-        Ok(i) => Some(i),
-        Err(_) => None,
-    }
+    sorted
+        .binary_search_by(|x| x.partial_cmp(&target).unwrap_or(Ordering::Equal))
+        .ok()
 }
 
 /// Bracket-style locate (Fortran `locate.for`):
@@ -188,7 +187,7 @@ pub fn randn() -> f64 {
 /// Check Fortran‐style name (chknam): 1st letter, <=8 chars, alphanumeric only.
 pub fn check_name(name: &str) -> bool {
     let s = name.trim();
-    if s.len() < 1 || s.len() > 8 { return false; }
+    if s.is_empty() || s.len() > 8 { return false; }
     let mut chars = s.chars();
     if !chars.next().unwrap().is_ascii_alphabetic() { return false; }
     chars.all(|c| c.is_ascii_alphanumeric())
@@ -206,7 +205,7 @@ pub fn format_title(title: &str) -> String {
 /// Convert integer to ordinal text (numtext), e.g. 1→"1st", 2→"2nd", 11→"11th", etc.
 pub fn num_text(n: i32) -> String {
     let suffix = match n % 100 {
-        11 | 12 | 13 => "th",
+        11..=13 => "th",
         _ => match n % 10 {
             1 => "st",
             2 => "nd",

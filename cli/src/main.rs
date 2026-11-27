@@ -7,7 +7,7 @@ use gslib_rs::{
     io::{read_gslib, write_gslib, GslibData},
     variogram,
     plot::plot_variogram,
-    simulation::{sgsim, sisim, sasim, SasimParams},
+    simulation::{sgsim, sisim},
 };
 
 /// GSLIB-RS command-line interface
@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // 3) Write CSV if requested
             if let Some(path) = out_csv {
                 let mut wtr = csv::Writer::from_path(path)?;
-                wtr.write_record(&["lag","semivar"])?;
+                wtr.write_record(["lag", "semivar"])?;
                 for (&h,&g) in lags.iter().zip(&semis) {
                     wtr.write_record(&[h.to_string(), g.to_string()])?;
                 }
@@ -271,10 +271,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
 
-        Commands::Sasim { data, out_prefix } => {
-            // You’ll want to parse SasimParams from additional flags,
-            // then call sasim(...) and write_gslib.
-            unimplemented!("SASIM CLI not yet hooked up");
+        Commands::Sasim { .. } => {
+            // TODO: parse SasimParams from flags, call `sasim`, write realizations.
+            return Err("the sasim subcommand is not implemented yet".into());
         }
     }
 

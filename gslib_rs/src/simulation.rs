@@ -211,7 +211,7 @@ where
                         prob += wi * ind;
                     }
                     // clamp into [0,1]
-                    prob.max(0.0).min(1.0)
+                    prob.clamp(0.0, 1.0)
                 }
                 None => {
                     let sum: f64 = cond_inds.iter().sum();
@@ -432,7 +432,7 @@ pub fn sasim(
         );
 
         // 4c) Annealing
-        let (mut T, redfac, ka, kmax, n_levels, Tmin) = params.schedule;
+        let (mut temp, redfac, ka, kmax, n_levels, t_min) = params.schedule;
         'levels: for _ in 0..n_levels {
             let mut accepted = 0;
             let mut trials = 0;
@@ -460,16 +460,16 @@ pub fn sasim(
                     &target_ivario,
                     &target_corr,
                 );
-                let dE = new_e - current_e;
-                if dE <= 0.0 || rand_f() < (-dE / T).exp() {
+                let d_e = new_e - current_e;
+                if d_e <= 0.0 || rand_f() < (-d_e / temp).exp() {
                     current_e = new_e;
                     accepted += 1;
                 } else {
                     field[i] = old;
                 }
             }
-            T *= redfac;
-            if T < Tmin {
+            temp *= redfac;
+            if temp < t_min {
                 break 'levels;
             }
         }
@@ -545,7 +545,7 @@ fn compute_total_energy(
     target_ivario: &[f64],
     target_corr: &[f64],
 ) -> f64 {
-    let mut E = 0.0;
+    let mut energy = 0.0;
 
     // 1) Histogram term
     if params.obj_components[0] {
@@ -560,7 +560,7 @@ fn compute_total_energy(
             let d = prop[i] - t;
             sum += d * d;
         }
-        E += params.weights[0] * sum;
+        energy += params.weights[0] * sum;
     }
 
     // 2) Semivariogram term
@@ -576,7 +576,7 @@ fn compute_total_energy(
             let d = sim_semis[i] - t;
             sum += d * d;
         }
-        E += params.weights[1] * sum;
+        energy += params.weights[1] * sum;
     }
 
     // 3) Indicator‐semivariogram term
@@ -594,7 +594,7 @@ fn compute_total_energy(
             let d = sim_ii[i] - t;
             sum += d * d;
         }
-        E += params.weights[2] * sum;
+        energy += params.weights[2] * sum;
     }
 
     // 4) Correlation term (one or more secondaries)
@@ -602,7 +602,7 @@ fn compute_total_energy(
         for (j, sec) in params.secondary_vals.iter().enumerate() {
             let r_sim = compute_correlation(field, sec);
             let d = r_sim - target_corr[j];
-            E += params.weights[3] * d * d;
+            energy += params.weights[3] * d * d;
         }
     }
 
@@ -612,7 +612,7 @@ fn compute_total_energy(
         // For now we leave it at zero.
     }
 
-    E
+    energy
 }
 
 // ----------------------------------
@@ -628,12 +628,12 @@ mod sasim_tests {
         // If data_vals are constant, histogram objective alone
         // should produce exactly that constant at every node.
         let data_coords = vec![(0.0, 0.0, 0.0)];
-        let data_vals = vec![3.1415];
+        let data_vals = vec![2.5];
         let params = SasimParams {
             obj_components: [true, false, false, false, false],
             weights: [1.0, 0.0, 0.0, 0.0, 0.0],
             hist_bins: 1,
-            hist_range: Some((3.1415, 3.1415)),
+            hist_range: Some((2.5, 2.5)),
             vario_max_dist: 0.0,
             vario_n_lags: 1,
             threshold: 0.0,
@@ -648,7 +648,7 @@ mod sasim_tests {
         let reals = sasim(&data_coords, &data_vals, &params);
         assert_eq!(reals.len(), 2);
         for field in reals {
-            assert!(field.iter().all(|&v| (v - 3.1415).abs() < 1e-12));
+            assert!(field.iter().all(|&v| (v - 2.5).abs() < 1e-12));
         }
     }
 }

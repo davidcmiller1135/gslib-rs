@@ -54,7 +54,7 @@ pub fn compute_empirical(
     // compute averages, zero if no pairs
     let semivars: Vec<f64> = sum
         .into_iter()
-        .zip(count.into_iter())
+        .zip(count)
         .map(|(s, c)| if c > 0 { s / (c as f64) } else { 0.0 })
         .collect();
 

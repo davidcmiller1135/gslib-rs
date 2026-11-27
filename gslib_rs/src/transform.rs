@@ -31,7 +31,7 @@ pub fn normal_score_transform(
     idx.sort_by(|&i, &j| data[i].partial_cmp(&data[j]).unwrap_or(Ordering::Equal));
 
     // 3) build sorted weights & accumulate positions
-    let mut sorted_w: Vec<f64> = idx.iter().map(|&i| w[i]).collect();
+    let sorted_w: Vec<f64> = idx.iter().map(|&i| w[i]).collect();
     let twt: f64 = sorted_w.iter().sum();
     let mut oldcp = 0.0;
     let mut positions = vec![0.0; n];
@@ -43,7 +43,7 @@ pub fn normal_score_transform(
 
     // 4) invert via Normal(0,1).inverse_cdf
     let norm = Normal::new(0.0, 1.0).unwrap();
-    let mut sorted_scores: Vec<f64> =
+    let sorted_scores: Vec<f64> =
         positions.iter().map(|&p| norm.inverse_cdf(p)).collect();
 
     // 5) reorder back to original order

@@ -18,6 +18,5 @@ pub mod kriging;
 /// Simulation: SGS, SIS, SASIM stubs
 pub mod simulation;
 
-/// Plotting (requires the `plot` feature)
-
+/// Plotting via `plotters` (PNG and SVG output)
 pub mod plot;
