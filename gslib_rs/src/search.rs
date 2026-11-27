@@ -35,6 +35,7 @@ use std::num::NonZeroUsize;
 
 use crate::error::{Error, Result};
 use crate::geometry::{Angles, Anisotropy, Point3, Ranges};
+use crate::num::{floor_index, to_f64};
 use crate::sample::Sample;
 
 /// The search ellipsoid: GSLIB's `radius, radius1, radius2` and
@@ -98,6 +99,13 @@ impl SearchEllipsoid {
         self.anisotropy.squared_scaled_distance(a, b)
     }
 
+    /// The smallest factor by which the search metric stretches a direction:
+    /// `q(h) ≥ smallest_scale()² · |h|²` ([`Anisotropy::smallest_scale`]).
+    #[must_use]
+    pub fn smallest_scale(&self) -> f64 {
+        self.anisotropy.smallest_scale()
+    }
+
     /// Whether a squared distance lies inside the ellipsoid (`q ≤ radius²`).
     #[must_use]
     pub fn admits(&self, squared_distance: f64) -> bool {
@@ -122,6 +130,9 @@ pub struct Candidate {
 /// Implementations are interchangeable: for the same data and arguments
 /// they must return the same sequence as [`BruteForce`] (D-025).
 pub trait Neighbourhood {
+    /// The data the neighbourhood was built from; candidate rows index it.
+    fn samples(&self) -> &[Sample];
+
     /// The candidates for `target` under `ellipsoid`.
     fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate>;
 }
@@ -141,6 +152,10 @@ impl<'a> BruteForce<'a> {
 }
 
 impl Neighbourhood for BruteForce<'_> {
+    fn samples(&self) -> &[Sample] {
+        self.samples
+    }
+
     fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
         let mut found: Vec<Candidate> = self
             .samples
@@ -157,6 +172,254 @@ impl Neighbourhood for BruteForce<'_> {
             .collect();
         sort_candidates(&mut found);
         found
+    }
+}
+
+/// Data binned into a regular grid of blocks over their bounding box (the
+/// idea of GSLIB's `setsupr`/`srchsupr`), so a search examines only the
+/// blocks that can hold candidates.
+///
+/// **Exact** (D-025, S6): it returns exactly the [`BruteForce`] sequence. A
+/// block is searched unless a *lower bound* on the squared distance from
+/// the target to any of its data exceeds `radius²`. The bound is `s² · d²`,
+/// where `s` is [`SearchEllipsoid::smallest_scale`] and `d` the Euclidean
+/// distance from the target to the tight bounding box of the block's own
+/// data, reduced by a relative margin of 1e-9 so rounding cannot exclude a
+/// datum on the boundary. **Divergence from GSLIB** (`picksup`, F-012):
+/// GSLIB tests 27 lattice points, which may exclude blocks holding data
+/// inside a rotated anisotropic ellipsoid (hypothesis, ROADMAP §6).
+#[derive(Debug, Clone)]
+pub struct SuperBlock {
+    origin: [f64; 3],
+    size: [f64; 3],
+    counts: [usize; 3],
+    /// The data, by row.
+    samples: Vec<Sample>,
+    /// Rows sorted by block; block `b` holds `rows[starts[b]..starts[b + 1]]`.
+    rows: Vec<usize>,
+    starts: Vec<usize>,
+    /// Tight bounding box `(min, max)` of each block's data.
+    boxes: Vec<([f64; 3], [f64; 3])>,
+}
+
+/// Relative margin on the block lower bound (see [`SuperBlock`]).
+const BOUND_MARGIN: f64 = 1e-9;
+/// About this many data per block when [`SuperBlock::new`] chooses counts.
+const DATA_PER_BLOCK: usize = 4;
+/// At most this many blocks along an axis.
+const MAX_BLOCKS_PER_AXIS: usize = 1024;
+
+impl SuperBlock {
+    /// Blocks chosen for `samples`: about four data per block, shaped to the
+    /// data's extent (one block along an axis where all data share a
+    /// coordinate).
+    #[must_use]
+    pub fn new(samples: &[Sample]) -> Self {
+        let (lo, hi) = extent(samples);
+        let extents = zip3(hi, lo, |h, l| h - l);
+        let active: Vec<f64> = extents.iter().copied().filter(|&e| e > 0.0).collect();
+        let blocks = samples.len().div_euclid(DATA_PER_BLOCK).max(1);
+        let counts = if active.is_empty() {
+            [1; 3]
+        } else {
+            // Cubes of side `side` would give about `blocks` blocks.
+            let volume: f64 = active.iter().product();
+            let side = (volume / to_f64(blocks)).powf(1.0 / to_f64(active.len()));
+            extents.map(|e| {
+                if e > 0.0 && side > 0.0 {
+                    floor_index(e / side)
+                        .map_or(MAX_BLOCKS_PER_AXIS, |n| n + 1)
+                        .min(MAX_BLOCKS_PER_AXIS)
+                } else {
+                    1
+                }
+            })
+        };
+        Self::build(samples, lo, extents, counts)
+    }
+
+    /// Exactly `counts` blocks along x, y and z (each at least 1).
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if a count is zero or above 1024.
+    pub fn with_counts(samples: &[Sample], counts: [usize; 3]) -> Result<Self> {
+        if counts.iter().any(|&n| n == 0 || n > MAX_BLOCKS_PER_AXIS) {
+            return Err(Error::invalid(
+                "super-block counts",
+                format!("each must be 1 to {MAX_BLOCKS_PER_AXIS}, got {counts:?}"),
+            ));
+        }
+        let (lo, hi) = extent(samples);
+        Ok(Self::build(samples, lo, zip3(hi, lo, |h, l| h - l), counts))
+    }
+
+    /// The number of blocks along x, y and z.
+    #[must_use]
+    pub const fn counts(&self) -> [usize; 3] {
+        self.counts
+    }
+
+    fn build(samples: &[Sample], origin: [f64; 3], extents: [f64; 3], counts: [usize; 3]) -> Self {
+        let [e0, e1, e2] = extents;
+        let [n0, n1, n2] = counts;
+        let width = |e: f64, n: usize| if e > 0.0 { e / to_f64(n) } else { 1.0 };
+        let size = [width(e0, n0), width(e1, n1), width(e2, n2)];
+        let mut grid = Self {
+            origin,
+            size,
+            counts,
+            samples: samples.to_vec(),
+            rows: Vec::new(),
+            starts: Vec::new(),
+            boxes: Vec::new(),
+        };
+        let nblocks = counts.iter().product::<usize>();
+        let mut keyed: Vec<(usize, usize)> = grid
+            .samples
+            .iter()
+            .enumerate()
+            .map(|(row, s)| (grid.block_of(coords(s.location())), row))
+            .collect();
+        keyed.sort_unstable();
+        grid.starts = vec![0; nblocks + 1];
+        for &(b, _) in &keyed {
+            if let Some(next) = grid.starts.get_mut(b + 1) {
+                *next += 1;
+            }
+        }
+        for b in 0..nblocks {
+            let before = grid.starts.get(b).copied().unwrap_or(0);
+            if let Some(next) = grid.starts.get_mut(b + 1) {
+                *next += before;
+            }
+        }
+        grid.rows = keyed.iter().map(|&(_, row)| row).collect();
+        grid.boxes = (0..nblocks)
+            .map(|b| {
+                grid.block_rows(b).iter().fold(
+                    ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]),
+                    |(lo, hi), &row| {
+                        let c = grid
+                            .samples
+                            .get(row)
+                            .map_or([0.0; 3], |s| coords(s.location()));
+                        (zip3(lo, c, f64::min), zip3(hi, c, f64::max))
+                    },
+                )
+            })
+            .collect();
+        grid
+    }
+
+    /// The block index along each axis of a point (clamped to the grid).
+    fn cell(&self, c: [f64; 3]) -> [usize; 3] {
+        let [x, y, z] = zip3(zip3(c, self.origin, |c, o| c - o), self.size, |d, s| d / s);
+        let [nx, ny, nz] = self.counts;
+        [
+            clamped_index(x, nx),
+            clamped_index(y, ny),
+            clamped_index(z, nz),
+        ]
+    }
+
+    const fn linear([i, j, k]: [usize; 3], [nx, ny, _]: [usize; 3]) -> usize {
+        i + nx * (j + ny * k)
+    }
+
+    fn block_of(&self, c: [f64; 3]) -> usize {
+        Self::linear(self.cell(c), self.counts)
+    }
+
+    fn block_rows(&self, b: usize) -> &[usize] {
+        let (start, end) = (
+            self.starts.get(b).copied().unwrap_or(0),
+            self.starts.get(b + 1).copied().unwrap_or(0),
+        );
+        self.rows.get(start..end).unwrap_or(&[])
+    }
+}
+
+impl Neighbourhood for SuperBlock {
+    fn samples(&self) -> &[Sample] {
+        &self.samples
+    }
+
+    fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
+        let t = coords(target);
+        let scale = ellipsoid.smallest_scale();
+        let limit = ellipsoid.radius() * ellipsoid.radius();
+        // Every candidate lies within Euclidean distance radius / scale.
+        let reach = ellipsoid.radius() / scale * (1.0 + BOUND_MARGIN);
+        let [i0, j0, k0] = self.cell(t.map(|x| x - reach));
+        let [i1, j1, k1] = self.cell(t.map(|x| x + reach));
+        let mut found = Vec::new();
+        for k in k0..=k1 {
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    let b = Self::linear([i, j, k], self.counts);
+                    let Some(&(bmin, bmax)) = self.boxes.get(b) else {
+                        continue;
+                    };
+                    // Squared Euclidean distance from the target to the box.
+                    let below = zip3(bmin, t, |m, x| (m - x).max(0.0));
+                    let above = zip3(t, bmax, |x, m| (x - m).max(0.0));
+                    let [g0, g1, g2] = zip3(below, above, f64::max);
+                    let gap = g0.mul_add(g0, g1.mul_add(g1, g2 * g2));
+                    if scale * scale * gap * (1.0 - BOUND_MARGIN) > limit {
+                        continue;
+                    }
+                    for &row in self.block_rows(b) {
+                        let Some(p) = self.samples.get(row).map(Sample::location) else {
+                            continue;
+                        };
+                        let q = ellipsoid.squared_distance(p, target);
+                        if ellipsoid.admits(q) {
+                            found.push(Candidate {
+                                row,
+                                squared_distance: q,
+                                offset: p.delta(target),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        sort_candidates(&mut found);
+        found
+    }
+}
+
+/// Combine two triples component by component.
+fn zip3(a: [f64; 3], b: [f64; 3], f: impl Fn(f64, f64) -> f64) -> [f64; 3] {
+    let ([a0, a1, a2], [b0, b1, b2]) = (a, b);
+    [f(a0, b0), f(a1, b1), f(a2, b2)]
+}
+
+fn coords(p: Point3) -> [f64; 3] {
+    p.delta(Point3::default())
+}
+
+/// The bounding box of the samples' locations (empty: all zeros).
+fn extent(samples: &[Sample]) -> ([f64; 3], [f64; 3]) {
+    if samples.is_empty() {
+        return ([0.0; 3], [0.0; 3]);
+    }
+    samples.iter().fold(
+        ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]),
+        |(lo, hi), s| {
+            let c = coords(s.location());
+            (zip3(lo, c, f64::min), zip3(hi, c, f64::max))
+        },
+    )
+}
+
+/// `floor(x)` clamped to `0..count` (NaN and negatives give 0).
+fn clamped_index(x: f64, count: usize) -> usize {
+    let last = count.saturating_sub(1);
+    if x.is_nan() || x <= 0.0 {
+        0
+    } else {
+        floor_index(x).map_or(last, |i| i.min(last))
     }
 }
 
@@ -339,13 +602,18 @@ impl DataSearch {
     }
 
     /// The samples to use at `target`, nearest first: [`DataSearch::select`]
-    /// over a [`BruteForce`] neighbourhood of `samples`.
+    /// mapped back to the neighbourhood's data.
     ///
     /// # Errors
     /// As [`DataSearch::select`].
-    pub fn select_samples(&self, samples: &[Sample], target: Point3) -> Result<Vec<Sample>> {
+    pub fn select_samples(
+        &self,
+        neighbourhood: &impl Neighbourhood,
+        target: Point3,
+    ) -> Result<Vec<Sample>> {
+        let samples = neighbourhood.samples();
         Ok(self
-            .select(&BruteForce::new(samples), target)?
+            .select(neighbourhood, target)?
             .into_iter()
             .filter_map(|row| samples.get(row).copied())
             .collect())
@@ -604,12 +872,12 @@ mod tests {
     fn select_samples_returns_the_selected_data_in_order() {
         let samples = [at(5.0, 0.0, 0.0), at(1.0, 0.0, 0.0), at(3.0, 0.0, 0.0)];
         let got = sphere(10.0, 2)
-            .select_samples(&samples, Point3::default())
+            .select_samples(&BruteForce::new(&samples), Point3::default())
             .unwrap();
         assert_eq!(got, vec![samples[1], samples[2]]);
         assert_eq!(
             DataSearch::unlimited()
-                .select_samples(&samples, Point3::default())
+                .select_samples(&BruteForce::new(&samples), Point3::default())
                 .unwrap()
                 .len(),
             3
@@ -657,6 +925,155 @@ mod tests {
                 .collect()
         });
         assert_eq!(parallel, sequential);
+    }
+
+    fn ellipsoid(az: f64, dip: f64, plunge: f64, radii: [f64; 3]) -> SearchEllipsoid {
+        let [major, minor, vertical] = radii;
+        SearchEllipsoid::new(
+            Angles {
+                azimuth: az,
+                dip,
+                plunge,
+            },
+            Ranges {
+                major,
+                minor,
+                vertical,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn super_block_handles_degenerate_data() {
+        // S6: no data, one datum, duplicates, all data at one point.
+        let e = SearchEllipsoid::isotropic(5.0).unwrap();
+        let t = Point3::new(1.0, 1.0, 0.0);
+        let cases: [Vec<Sample>; 4] = [
+            vec![],
+            vec![at(0.0, 0.0, 0.0)],
+            vec![at(2.0, 1.0, 0.0), at(2.0, 1.0, 0.0), at(0.0, 0.0, 0.0)],
+            vec![at(3.0, 3.0, 3.0); 5],
+        ];
+        for samples in cases {
+            let index = SuperBlock::new(&samples);
+            assert_eq!(
+                index.candidates(&e, t),
+                BruteForce::new(&samples).candidates(&e, t),
+                "{samples:?}"
+            );
+        }
+        assert_eq!(SuperBlock::new(&[]).counts(), [1, 1, 1]);
+    }
+
+    #[test]
+    fn super_block_counts_follow_the_data() {
+        // About four data per block, one block along a flat axis.
+        let flat: Vec<Sample> = (0..400_u32)
+            .map(|i| at(f64::from(i % 20), f64::from(i.div_euclid(20)), 0.0))
+            .collect();
+        let [nx, ny, nz] = SuperBlock::new(&flat).counts();
+        assert_eq!(nz, 1, "2-D data");
+        assert!((80..=150).contains(&(nx * ny)), "{nx} x {ny}");
+        assert!(SuperBlock::with_counts(&flat, [0, 1, 1]).is_err(), "zero");
+        assert!(
+            SuperBlock::with_counts(&flat, [1, 1025, 1]).is_err(),
+            "too many"
+        );
+    }
+
+    #[test]
+    fn super_block_finds_data_gslib_may_miss() {
+        // The F-012 probe geometry: blocks of 10, azimuth 20, minor radius
+        // 0.2 x 25. GSLIB's lattice test may exclude blocks holding data
+        // inside this ellipsoid; the exact bound must not.
+        let samples: Vec<Sample> = (0..=100_u32)
+            .flat_map(|i| (0..=100_u32).map(move |j| at(f64::from(i), f64::from(j), 0.0)))
+            .collect();
+        let index = SuperBlock::with_counts(&samples, [10, 10, 1]).unwrap();
+        let e = ellipsoid(20.0, 0.0, 0.0, [25.0, 5.0, 5.0]);
+        for t in [Point3::new(45.0, 45.0, 0.0), Point3::new(55.5, 41.25, 0.0)] {
+            let got = index.candidates(&e, t);
+            assert!(!got.is_empty());
+            assert_eq!(got, BruteForce::new(&samples).candidates(&e, t), "{t:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "timing evidence for the super-block; run with --release --ignored --nocapture"]
+    fn super_block_timing() {
+        // 20 000 scattered 2-D data, 2 000 targets, a search radius of 5% of
+        // the domain: the case GSLIB's super-blocks exist for.
+        let samples: Vec<Sample> = (0..20_000_u32)
+            .map(|i| {
+                let f = f64::from(i);
+                at(
+                    (f * 0.618_034).fract() * 1000.0,
+                    (f * 0.414_214).fract() * 1000.0,
+                    0.0,
+                )
+            })
+            .collect();
+        let targets: Vec<Point3> = (0..2_000_u32)
+            .map(|i| {
+                let f = f64::from(i);
+                Point3::new(
+                    (f * 0.732_051).fract() * 1000.0,
+                    (f * 0.236_068).fract() * 1000.0,
+                    0.0,
+                )
+            })
+            .collect();
+        let search = sphere(50.0, 24);
+        let building = std::time::Instant::now();
+        let index = SuperBlock::new(&samples);
+        let build = building.elapsed();
+        let time = |n: &dyn Fn(Point3) -> Vec<usize>| {
+            let started = std::time::Instant::now();
+            let total: usize = targets.iter().map(|&t| n(t).len()).sum();
+            (started.elapsed(), total)
+        };
+        let (brute, nb) = time(&|t| search.select(&BruteForce::new(&samples), t).unwrap());
+        let (fast, nf) = time(&|t| search.select(&index, t).unwrap());
+        assert_eq!(nb, nf);
+        println!(
+            "brute force {brute:?}, super-block {fast:?} (+ {build:?} to build, {:?} blocks)",
+            index.counts()
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn super_block_equals_brute_force(
+            points in prop::collection::vec(
+                prop_oneof![
+                    (-20.0_f64..20.0, -20.0_f64..20.0, -5.0_f64..5.0),
+                    (-4_i8..=4, -4_i8..=4, -1_i8..=1)
+                        .prop_map(|(x, y, z)| (f64::from(x) * 5.0, f64::from(y) * 5.0, f64::from(z))),
+                ],
+                0..80,
+            ),
+            (az, dip, plunge) in (0.0_f64..360.0, -90.0_f64..90.0, -90.0_f64..90.0),
+            (radius, r1, r2) in (0.5_f64..40.0, 0.05_f64..2.0, 0.05_f64..2.0),
+            target in (-60.0_f64..60.0, -60.0_f64..60.0, -10.0_f64..10.0),
+            counts in prop::option::of((1_usize..7, 1_usize..7, 1_usize..4)),
+        ) {
+            // S6, D-025: ratios from 0.05 to 2 (so the smallest scale can be
+            // below 1), targets inside and outside the data, any block grid.
+            let samples: Vec<Sample> = points.iter().map(|&(x, y, z)| at(x, y, z)).collect();
+            let index = counts.map_or_else(
+                || SuperBlock::new(&samples),
+                |c| SuperBlock::with_counts(&samples, c.into()).unwrap(),
+            );
+            let e = ellipsoid(az, dip, plunge, [radius, radius * r1, radius * r2]);
+            let t = Point3::new(target.0, target.1, target.2);
+            prop_assert_eq!(index.candidates(&e, t), BruteForce::new(&samples).candidates(&e, t));
+            let unlimited = SearchEllipsoid::unlimited();
+            prop_assert_eq!(
+                index.candidates(&unlimited, t),
+                BruteForce::new(&samples).candidates(&unlimited, t)
+            );
+        }
     }
 
     proptest! {

@@ -19,7 +19,7 @@ use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
-use gslib_rs::search::{DataSearch, SearchEllipsoid};
+use gslib_rs::search::{DataSearch, SearchEllipsoid, SuperBlock};
 use gslib_rs::simulation::{sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::{LagClasses, experimental_variogram};
@@ -381,13 +381,15 @@ fn krige(args: &KrigeArgs) -> AppResult {
     let targets_file = read_gslib(&args.targets)?;
     let targets = TARGET_COLUMNS.points(&targets_file)?;
     let search = args.search.search()?;
+    // The data are fixed, so index them once.
+    let index = SuperBlock::new(&samples);
 
     let estimates = match args.kind {
         KrigingType::Ordinary => {
             let model = args.model.variogram()?;
             targets
                 .iter()
-                .map(|&t| ordinary_kriging(&search.select_samples(&samples, t)?, t, &model))
+                .map(|&t| ordinary_kriging(&search.select_samples(&index, t)?, t, &model))
                 .collect::<Result<Vec<_>, _>>()?
         }
         KrigingType::Simple => {
@@ -398,7 +400,7 @@ fn krige(args: &KrigeArgs) -> AppResult {
             };
             targets
                 .iter()
-                .map(|&t| simple_kriging(&search.select_samples(&samples, t)?, t, &model, mean))
+                .map(|&t| simple_kriging(&search.select_samples(&index, t)?, t, &model, mean))
                 .collect::<Result<Vec<_>, _>>()?
         }
     };

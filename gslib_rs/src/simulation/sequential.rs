@@ -17,7 +17,7 @@ use crate::kriging::simple_kriging;
 use crate::model::CovarianceModel;
 use crate::num::mean;
 use crate::sample::Sample;
-use crate::search::DataSearch;
+use crate::search::{BruteForce, DataSearch};
 
 /// Visit `nodes` in random order, computing each value from the conditioning
 /// set so far (data plus earlier nodes), and return values in node order.
@@ -49,7 +49,13 @@ where
         let value = if let Some(v) = existing {
             v
         } else {
-            let v = draw(&search.select_samples(&conditioning, node)?, node, rng)?;
+            // The set grows at every node, so a brute-force search over it; the
+            // node search (docs/spec/search.md step 4) replaces this.
+            let v = draw(
+                &search.select_samples(&BruteForce::new(&conditioning), node)?,
+                node,
+                rng,
+            )?;
             // Only new locations join the conditioning set: a duplicate
             // location would make every later kriging system singular.
             conditioning.push(Sample::new(node, v)?);

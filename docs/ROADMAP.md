@@ -45,7 +45,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}`, `krige` CLI | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
-| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants (`docs/spec/search.md` step 1) | **super-block** accelerator (currently brute force, O(N) per lookup); `sgsim`'s node search and two-part search; CLI flags for anisotropy, octants and `ndmin`; parity fixtures through `kt3d` |
+| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block (`docs/spec/search.md` steps 1–2) | `sgsim`'s node search and two-part search; CLI flags for anisotropy, octants and `ndmin`; parity fixtures through `kt3d` |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
 

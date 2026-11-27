@@ -145,7 +145,15 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
        behaviour;
      - tick the search-parameter ledger item (names verified in F-012).
    - Tests: S1–S5, S7.
-2. **Super-block accelerator.**
+2. **Super-block accelerator** (done: `SuperBlock`, about four data per
+   block over the data's extent; each block is skipped only when
+   `smallest_scale² · d²` to the tight box of its own data exceeds
+   `radius²`, with a 1e-9 relative margin for rounding. Equal to brute
+   force over 2 000 random cases. Timing, release build, 20 000 scattered
+   2-D data, 2 000 targets, radius 5% of the domain, `max_data = 24`:
+   850 ms brute force against 17.6 ms, plus 1.5 ms to build, about 48×.
+   All 6 planted bugs in the bound and block range were caught. The CLI's
+   `krige` uses it).
    - Work:
      - a `SuperBlock` built from the data's extent, with a block-selection
        bound proven to be a lower bound (D-025);
