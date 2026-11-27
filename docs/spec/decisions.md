@@ -1010,3 +1010,20 @@ From `vendor/gslib-2.0/src/`:
   `.INC` limits. `sgsim` fixtures (harness step 8) must use 2-D grids
   within ±35 nodes of the search, or the recipe must patch the limits in
   its copy (a source patch recorded in provenance).
+
+## D-029: The thread pool is rayon
+- Status: decided
+- Topic: parallelism.md
+- Question: Which thread pool does gslib-rs use for parallel execution?
+- Options: `rayon`; `std::thread::scope` only, with no dependency.
+- Decision: **`rayon`.**
+- Rationale: work stealing keeps cores busy when per-item costs vary (for
+  example, targets with different numbers of neighbours), and `par_iter`
+  over slices keeps the parallel code short. It is MIT/Apache licensed,
+  widely used, and exposes a safe API. A pool can be sized explicitly, which
+  the thread-count invariance tests (P1) need.
+- Consequences:
+  - The dependency (with `rayon-core` and `crossbeam-*`) must pass `cargo
+    deny check` when it is added.
+  - Determinism never relies on the scheduler: every reduction has a fixed
+    order (question 3), and errors are reported in item order (P2).

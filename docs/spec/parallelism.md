@@ -40,9 +40,13 @@ letting results depend on the number of threads or the hardware.
   their seeds, whose derivation belongs to the RNG spec (PLAN C5).
 - **No thread-pool crate** is a dependency yet.
 
+## Decisions so far
+
+- **Thread pool** (D-029): `rayon`.
+
 ## Open questions (with recommendations)
 
-1. **Thread pool.** `rayon` *(recommended: work stealing, `par_iter` on
+1. ~~Thread pool~~ (D-029: `rayon`). Was: `rayon` *(recommended: work stealing, `par_iter` on
    slices, mature, permissive licence, widely audited)* or only
    `std::thread::scope` (no dependency, but manual chunking everywhere).
 2. **Where the parallel loops live.**
