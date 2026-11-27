@@ -23,9 +23,8 @@ and findings: `docs/spec/decisions.md`.
   | `docs/spec/harness.md` | Steps 1–6 done (6 for the omnidirectional semivariogram only); 7 (kt3d) and 8 (sgsim) to do |
   | `docs/spec/missing-values.md` | Decided (D-018…D-023); plan steps 1–4 to do |
 
-- **Provisional decision:** D-017 (gamv self-pairs and doubled
-  omnidirectional counts; gslib-rs counts distinct pairs once) is awaiting
-  the owner's confirmation.
+- **D-017** (gamv counts each distinct pair once, with no self-pairs) was
+  confirmed by the owner on 2026-11-27.
 - **GitHub CI does not run** (§2). Nothing has been verified by CI. Every
   "passes" above is from local runs.
 
@@ -110,7 +109,6 @@ and acceptance tests named in it.
 
 | # | Work | Spec | Depends on |
 |---|---|---|---|
-| A1 | Owner confirms D-017 (or chooses GSLIB's counting as an opt-in policy) | `decisions.md` D-017 | — |
 | A2 | CI running and green on PR #4; merge (squash) | §2 above | owner actions |
 
 ### Phase B: missing values (every later program reads data through this)
@@ -143,7 +141,7 @@ Each item is **spec first**, except where noted.
 | D2 | `nscore`/`backtr` completion | reference distribution, power/hyperbolic tails, writing the transformation table, despiking as a legacy policy, CLI subcommands |
 | D3 | `ik3d` and multi-threshold `sisim` | order-relation corrections, categorical data, soft data, Markov–Bayes |
 | D4 | `cokb3d` | ordinary/collocated cokriging; check of the linear model of coregionalisation |
-| D5 | `.par` adapter / GSLIB-compatibility mode | the one place that selects every legacy policy (D-020, D-021, D-023, `OnSingular`, D-017's alternative) |
+| D5 | `.par` adapter / GSLIB-compatibility mode | the one place that selects every legacy policy (D-020, D-021, D-023, `OnSingular`) |
 | D6 | the rest: `gam`, `varmap`, `trans`, `addcoord`, `draw`, `histsmth`/`scatsmth`, `bicalib`, `postik`/`postsim`, `anneal`, `lusim`, `gtsim`, `pfsim`, `ellipsim`, plotting programs | one at a time, each with its own fixtures |
 
 ### Phase E: beyond GSLIB

@@ -598,9 +598,9 @@ From `GAMV/GAMV.FOR`, `GAMV/GAMV.INC` and 7 fixtures.
   pair exactly on a bound. The `grid_3d_boundaries` case was added, and the
   mutant now gives 22 mismatches.
 
-## D-017: Self-pairs and doubled counts in gamv (provisional)
-- Status: decided **provisionally**: chosen during implementation and
-  awaiting the user's confirmation.
+## D-017: Self-pairs and doubled counts in gamv
+- Status: decided. Chosen provisionally during implementation and confirmed
+  by the owner on 2026-11-27 ("count once"), with no legacy policy.
 - Topic: harness.md (step 6); `variogram::CentredLags`
 - Question: Should gslib-rs reproduce `gamv`'s self-pairs in the
   zero-distance class, and its doubled omnidirectional pair counts?
@@ -618,9 +618,9 @@ From `GAMV/GAMV.FOR`, `GAMV/GAMV.INC` and 7 fixtures.
   - The harness verifies both differences exactly, so parity is
     demonstrated, not assumed.
 - Consequences: listed in ROADMAP §2. A GSLIB-compatibility mode could
-  re-create either from gslib-rs's output with the relations in F-008. If the
-  user prefers option 1 or 3, only `CentredLags` and the gamv harness test
-  change.
+  re-create either from gslib-rs's output with the relations in F-008, but
+  no opt-in policy is planned (option 3 was not chosen). Reopening this
+  would change only `CentredLags` and the gamv harness test.
 
 ## Finding F-009: Missing values in GSLIB 2.0 (survey, 2026-11-27)
 From a grep of every program in `vendor/gslib-2.0/src/` (comparison patterns

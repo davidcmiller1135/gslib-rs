@@ -102,11 +102,11 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Back-transform tails | options 1 (linear), 2 (power), 4 (hyperbolic, upper only); no clamping option | 1 (linear) only, plus `Tail::Clamp` (an extension) | power and hyperbolic planned |
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
-| Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | possible legacy policy; provisional, see D-017 |
+| Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection, `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
 | `lusim` unestimated code | −1.0 (collides with real data) | −999 by default, configurable (D-023) | `--unest -1` |
-| Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled (γ unaffected) | each pair counted once | n/a (reporting convention); provisional, see D-017 |
+| Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled (γ unaffected) | each pair counted once | n/a (reporting convention); D-017 |
 | π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
 | Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
