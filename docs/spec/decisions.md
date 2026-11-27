@@ -1106,3 +1106,27 @@ From `vendor/gslib-2.0/src/`:
     pair count equals the unpruned loop's.
   - The zero-distance class and overlapping lags are unchanged, since
     pruning only removes pairs that belong to no class.
+
+## D-033: GPU acceleration: not now, evidence first
+- Status: decided
+- Topic: parallelism.md
+- Question: What is the stance on GPU acceleration?
+- Options: not now, evidence first; plan a mixed-precision `f32` path; rule
+  GPUs out.
+- Decision: **not now.** GPU work is an opt-in extension (ROADMAP §5),
+  taken up only after the parallel CPU paths exist, and only with a
+  benchmark showing that a GPU pair loop beats them on representative data.
+- Rationale:
+  - `f64` is slow on consumer GPUs and essentially absent in WebGPU.
+  - CUDA bindings rely on `unsafe`.
+  - Atomic reductions break thread-count invariance (precedence 1).
+  - CI has no GPU runners.
+  - Performance comes last in `AGENTS.md`'s precedence.
+- Consequences: any future GPU kernel must be:
+  - off by default, behind a feature;
+  - deterministic in its reduction;
+  - checked against the CPU result within a documented tolerance;
+  - covered by a GPU CI job (P6).
+  
+  An `f32` path would need its own spec, since it changes the `f64`
+  contract.

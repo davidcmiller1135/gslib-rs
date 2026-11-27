@@ -170,14 +170,13 @@ The guiding principle is **no ceremony**: structure has to earn its place
 - **Parallelism at the edge.** The core stays sequential and pure per item
   (one target, one block of pairs, one realization). Parallel maps over
   those items live in a boundary module behind an opt-in feature, and their
-  output never depends on the thread count (`docs/spec/parallelism.md`,
-  draft).
+  output never depends on the thread count (`docs/spec/parallelism.md`).
 
 ## 5. Beyond GSLIB
 
 Once parity is solid:
 
-- **Parallel execution** (`docs/spec/parallelism.md`, draft), with output
+- **Parallel execution** (`docs/spec/parallelism.md`, D-029–D-033), with output
   bit-identical for any thread count:
   - kriging at many targets (searches are already pure and thread-safe);
   - experimental variograms, with a fixed-block deterministic reduction and
