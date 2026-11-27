@@ -46,7 +46,8 @@ fn sgsim_cli_writes_gslib_files() {
     let data_file = make_sample_gslib();
     let sim_file  = make_sample_gslib();
 
-    let prefix = NamedTempFile::new().unwrap().path().with_file_name("out");
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("out");
     let mut cmd = Command::cargo_bin("cli").unwrap();
     cmd.arg("sgsim")
        .arg("--data").arg(data_file.path())
@@ -68,7 +69,8 @@ fn sisim_cli_all_ones() {
     let data_file = make_sample_gslib();
     let sim_file  = make_sample_gslib();
 
-    let prefix = NamedTempFile::new().unwrap().path().with_file_name("out");
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("out");
     let mut cmd = Command::cargo_bin("cli").unwrap();
     cmd.arg("sisim")
        .arg("--data").arg(data_file.path())
@@ -78,16 +80,9 @@ fn sisim_cli_all_ones() {
        .arg("--out-prefix").arg(&prefix);
     cmd.assert().success();
 
-    // Header = 1 title + 1 nvar + 5 var_names = 7 lines
     for i in 0..2 {
         let path = prefix.with_file_name(format!("out_{}.gslib", i));
-        let text = std::fs::read_to_string(&path).unwrap();
-        for line in text.lines().skip(7) {
-            let fields: Vec<_> = line.split_whitespace().collect();
-            let ind_idx = fields.len() - 1; // indicator is second-to-last
-            let ind: f64 = fields[ind_idx].parse().unwrap();
-            assert_eq!(ind, 1.0);
-        }
+        assert_eq!(last_column(&path, &format!("ind_{i}")), vec![1.0; 3]);
     }
 }
 
@@ -96,7 +91,8 @@ fn sisim_cli_all_zeros() {
     let data_file = make_sample_gslib();
     let sim_file  = make_sample_gslib();
 
-    let prefix = NamedTempFile::new().unwrap().path().with_file_name("out");
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("out");
     let mut cmd = Command::cargo_bin("cli").unwrap();
     cmd.arg("sisim")
        .arg("--data").arg(data_file.path())
@@ -107,11 +103,72 @@ fn sisim_cli_all_zeros() {
     cmd.assert().success();
 
     let path = prefix.with_file_name("out_0.gslib");
+    assert_eq!(last_column(&path, "ind_0"), vec![0.0; 3]);
+}
+
+#[test]
+fn sgsim_cli_keeps_sim_columns_and_appends_result() {
+    let data_file = make_sample_gslib();
+    let sim_file = make_sample_gslib();
+
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("sgs_cols");
+    Command::cargo_bin("cli")
+        .unwrap()
+        .arg("sgsim")
+        .arg("--data").arg(data_file.path())
+        .arg("--sim").arg(sim_file.path())
+        .arg("--seed").arg("1")
+        .arg("--out-prefix").arg(&prefix)
+        .assert()
+        .success();
+
+    let path = prefix.with_file_name("sgs_cols_0.gslib");
     let text = std::fs::read_to_string(&path).unwrap();
-    for line in text.lines().skip(7) {
-        let fields: Vec<_> = line.split_whitespace().collect();
-        let ind_idx = fields.len() - 1;
-        let ind: f64 = fields[ind_idx].parse().unwrap();
-        assert_eq!(ind, 0.0);
-    }
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[1], "5");
+    assert_eq!(&lines[2..7], ["X", "Y", "Z", "V", "sim_0"]);
+    // The sim file's own V column (1, 2, 3) must be carried through unchanged.
+    let v: Vec<f64> = lines[7..]
+        .iter()
+        .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(v, vec![1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn sgsim_cli_rejects_data_without_value_column() {
+    let mut data_file = NamedTempFile::new().unwrap();
+    writeln!(data_file, "Coords only\n3\nX\nY\nZ\n0 0 0").unwrap();
+    let sim_file = make_sample_gslib();
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("bad");
+
+    Command::cargo_bin("cli")
+        .unwrap()
+        .arg("sgsim")
+        .arg("--data").arg(data_file.path())
+        .arg("--sim").arg(sim_file.path())
+        .arg("--out-prefix").arg(&prefix)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("expected at least 4"));
+}
+
+/// Read a GSLIB output file, check its last variable is named `name`, and
+/// return that column's values.
+fn last_column(path: &std::path::Path, name: &str) -> Vec<f64> {
+    let text = std::fs::read_to_string(path).unwrap();
+    let mut lines = text.lines();
+    lines.next(); // title
+    let nvar: usize = lines.next().unwrap().trim().parse().unwrap();
+    let names: Vec<&str> = lines.by_ref().take(nvar).collect();
+    assert_eq!(names.last().copied(), Some(name), "last variable name");
+    lines
+        .map(|l| {
+            let fields: Vec<&str> = l.split_whitespace().collect();
+            assert_eq!(fields.len(), nvar);
+            fields[nvar - 1].parse().unwrap()
+        })
+        .collect()
 }

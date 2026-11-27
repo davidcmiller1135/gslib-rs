@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
-use std::{error::Error, path::PathBuf};
-use ndarray::Array2;
+use std::{error::Error, path::{Path, PathBuf}};
+use ndarray::Array1;
 
 
 use gslib_rs::{
@@ -89,19 +89,64 @@ enum Commands {
     },
 }
 
+type Coords = Vec<(f64, f64, f64)>;
+
+/// Read a GSLIB file and check it has at least `min_cols` columns.
+fn read_checked(path: &Path, min_cols: usize, what: &str) -> Result<GslibData, Box<dyn Error>> {
+    let ds = read_gslib(path)?;
+    let ncols = ds.data.ncols();
+    if ncols < min_cols {
+        return Err(format!(
+            "{what} file {} has {ncols} column(s); expected at least {min_cols}",
+            path.display()
+        )
+        .into());
+    }
+    Ok(ds)
+}
+
+/// Columns 0..3 as (x, y, z).
+fn coords_of(ds: &GslibData) -> Coords {
+    ds.data.rows().into_iter().map(|r| (r[0], r[1], r[2])).collect()
+}
+
+/// Read a data file with columns x, y, z, value.
+fn read_data(path: &Path) -> Result<(GslibData, Coords, Vec<f64>), Box<dyn Error>> {
+    let ds = read_checked(path, 4, "data")?;
+    let coords = coords_of(&ds);
+    let values = ds.data.column(3).to_vec();
+    Ok((ds, coords, values))
+}
+
+/// Write one realization: every column of the simulation-target file, plus
+/// `values` appended as a new column called `name`.
+fn write_realization(
+    sim_ds: &GslibData,
+    title: &str,
+    name: String,
+    values: Vec<f64>,
+    path: PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let mut data = sim_ds.data.clone();
+    data.push_column(Array1::from(values).view())?;
+    let mut var_names = sim_ds.var_names.clone();
+    var_names.push(name);
+    let out = GslibData { title: title.to_string(), var_names, data };
+    write_gslib(path, &out)?;
+    Ok(())
+}
+
+fn realization_path(prefix: &Path, i: usize) -> PathBuf {
+    PathBuf::from(format!("{}_{}.gslib", prefix.to_string_lossy(), i))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.cmd {
         Commands::Variogram { input, max_dist, n_lags, out_csv, model, plot } => {
-            // 1) Read data
-            let ds = read_gslib(&input)?;
-            // assume columns: x,y,z,var
-            let coords = ds.data.rows()
-                .into_iter()
-                .map(|r| (r[0], r[1], r[2]))
-                .collect::<Vec<_>>();
-            let values = ds.data.column(3).to_vec();
+            // 1) Read data (columns: x, y, z, value)
+            let (_ds, coords, values) = read_data(&input)?;
 
             // 2) Compute empirical variogram
             let (lags, semis) = variogram::compute_empirical(&coords, &values, max_dist, n_lags);
@@ -134,142 +179,54 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         Commands::Sgsim { data, sim, nsim, seed, out_prefix } => {
-            // 1) Seed the RNG if requested
             if let Some(s) = seed {
-                // fully qualified so you don't need to import utils
                 gslib_rs::utils::set_seed(s);
             }
 
-            // 2) Read conditioning data
-            let ds_data = read_gslib(&data)?;
-            let data_coords: Vec<(f64, f64, f64)> = ds_data
-                .data
-                .rows()
-                .into_iter()
-                .map(|r| (r[0], r[1], r[2]))
-                .collect();
-            let data_vals: Vec<f64> = ds_data.data.column(3).to_vec();
+            let (ds_data, data_coords, data_vals) = read_data(&data)?;
+            let ds_sim = read_checked(&sim, 3, "simulation-target")?;
+            let sim_coords = coords_of(&ds_sim);
 
-            // 3) Read simulation target locations
-            let ds_sim = read_gslib(&sim)?;
-            let sim_coords: Vec<(f64, f64, f64)> = ds_sim
-                .data
-                .rows()
-                .into_iter()
-                .map(|r| (r[0], r[1], r[2]))
-                .collect();
-
-            // 4) Compute global mean of the conditioning values
+            // Global mean of the conditioning values
             let mean = data_vals.iter().sum::<f64>() / (data_vals.len() as f64);
 
-            // 5) Default covariance function: exponential covariance with unit sill
+            // Default covariance function: exponential covariance with unit sill
             let cov_func = |h: f64| (-h).exp();
 
-            // 6) Run the simulation
-            let realizations = sgsim(
-                &data_coords,
-                &data_vals,
-                &sim_coords,
-                cov_func,
-                mean,
-                nsim,
-            );
+            let realizations = sgsim(&data_coords, &data_vals, &sim_coords, cov_func, mean, nsim);
 
-            // 7) Write out each realization as a GSLIB file
             for (i, sim_vals) in realizations.into_iter().enumerate() {
-                // Build new var_names = original coords names + "sim_i"
-                let mut var_names = ds_sim.var_names.clone();
-                var_names.push(format!("sim_{}", i));
-
-                let nrec = sim_coords.len();
-                let nvar = var_names.len();
-
-                // Build data array: [x,y,z,sim_val]
-                let mut arr = Array2::<f64>::zeros((nrec, nvar));
-                for (j, &(x, y, z)) in sim_coords.iter().enumerate() {
-                    arr[(j, 0)] = x;
-                    arr[(j, 1)] = y;
-                    arr[(j, 2)] = z;
-                    arr[(j, 3)] = sim_vals[j];
-                }
-
-                let out_ds = GslibData {
-                    title: ds_data.title.clone(),
-                    var_names: var_names.clone(),
-                    data: arr,
-                };
-
-                let prefix = out_prefix.to_string_lossy();
-                let out_path = std::path::PathBuf::from(format!("{}_{}.gslib", prefix, i));
-                write_gslib(out_path, &out_ds)?;
+                write_realization(
+                    &ds_sim,
+                    &ds_data.title,
+                    format!("sim_{i}"),
+                    sim_vals,
+                    realization_path(&out_prefix, i),
+                )?;
             }
         }
-
 
         Commands::Sisim { data, sim, threshold, nsim, out_prefix } => {
-            // 1) Read conditioning data
-            let ds_data = read_gslib(&data)?;
-            let data_coords: Vec<(f64, f64, f64)> = ds_data
-                .data
-                .rows()
-                .into_iter()
-                .map(|r| (r[0], r[1], r[2]))
-                .collect();
-            let data_vals: Vec<f64> = ds_data.data.column(3).to_vec();
+            let (ds_data, data_coords, data_vals) = read_data(&data)?;
+            let ds_sim = read_checked(&sim, 3, "simulation-target")?;
+            let sim_coords = coords_of(&ds_sim);
 
-            // 2) Read simulation targets (x,y,z only)
-            let ds_sim = read_gslib(&sim)?;
-            let sim_coords: Vec<(f64, f64, f64)> = ds_sim
-                .data
-                .rows()
-                .into_iter()
-                .map(|r| (r[0], r[1], r[2]))
-                .collect();
-
-            // 3) Default covariance model: exponential with unit sill
+            // Default covariance model: exponential with unit sill
             let cov_func = |h: f64| (-h).exp();
 
-            // 4) Run SISIM
-            let realizations: Vec<Vec<u8>> = sisim(
-                &data_coords,
-                &data_vals,
-                &sim_coords,
-                threshold,
-                cov_func,
-                nsim,
-            );
+            let realizations =
+                sisim(&data_coords, &data_vals, &sim_coords, threshold, cov_func, nsim);
 
-            // 5) Write out each realization as a GSLIB file
             for (i, sim_inds) in realizations.into_iter().enumerate() {
-                // take original var_names (["X","Y","Z"]) and append indicator column
-                let mut var_names = ds_sim.var_names.clone();
-                var_names.push(format!("ind_{}", i));
-
-                let nrec = sim_coords.len();
-                let nvar = var_names.len();
-
-                // Build an Array2<f64> with indicator values cast to f64
-                let mut arr = Array2::<f64>::zeros((nrec, nvar));
-                for (j, &(x, y, z)) in sim_coords.iter().enumerate() {
-                    arr[(j, 0)] = x;
-                    arr[(j, 1)] = y;
-                    arr[(j, 2)] = z;
-                    arr[(j, 3)] = sim_inds[j] as f64;
-                }
-
-                let out_ds = GslibData {
-                    title: ds_data.title.clone(),
-                    var_names: var_names.clone(),
-                    data: arr,
-                };
-
-                let prefix = out_prefix.to_string_lossy();
-                let out_path = std::path::PathBuf::from(format!("{}_{}.gslib", prefix, i));
-                write_gslib(out_path, &out_ds)?;
+                write_realization(
+                    &ds_sim,
+                    &ds_data.title,
+                    format!("ind_{i}"),
+                    sim_inds.into_iter().map(f64::from).collect(),
+                    realization_path(&out_prefix, i),
+                )?;
             }
         }
-
-
 
         Commands::Sasim { .. } => {
             // TODO: parse SasimParams from flags, call `sasim`, write realizations.
