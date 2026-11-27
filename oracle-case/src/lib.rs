@@ -27,6 +27,16 @@ pub const GSLIB_PROGRAMS: [&str; 39] = [
     "varmap", "vmodel",
 ];
 
+/// The files whose contents define the reference recipe (D-014), relative
+/// to the workspace root. Directories are walked recursively.
+pub const RECIPE_FILES: [&str; 5] = [
+    "xtask",
+    "oracle-case",
+    "vendor/gslib-2.0/MANIFEST.sha256",
+    "Cargo.toml",
+    "Cargo.lock",
+];
+
 /// Compiler flags every reference build must use (`AGENTS.md`, *Reference
 /// build*).
 pub const REQUIRED_FLAGS: [&str; 2] = ["-fdefault-real-8", "-fdefault-double-8"];
@@ -140,7 +150,11 @@ pub struct Provenance {
     pub rewrite_rules_version: u32,
     /// SHA-256 of this fixture's `case.toml`.
     pub case_sha256: String,
-    /// Git commit of the repository that generated the fixture.
+    /// Content hash of the recipe that generated the fixture
+    /// ([`recipe_sha256`]); survives squash merges (D-014).
+    pub recipe_sha256: String,
+    /// Git commit the recipe was run from. Informational only: a squash merge
+    /// can leave it unreachable from `main` (D-014).
     pub recipe_commit: String,
     /// Generation time, UTC, as `YYYY-MM-DDTHH:MM:SSZ`.
     pub generated_utc: String,
@@ -279,7 +293,10 @@ pub fn parse_provenance(text: &str, path: &Path) -> Result<Provenance> {
             format!("schema {} is not {SCHEMA_VERSION}", p.schema),
         ));
     }
-    if !is_hex(&p.source_manifest_sha256, 64) || !is_hex(&p.case_sha256, 64) {
+    if ![&p.source_manifest_sha256, &p.case_sha256, &p.recipe_sha256]
+        .iter()
+        .all(|h| is_hex(h, 64))
+    {
         return Err(invalid(
             path,
             "SHA-256 values must be 64 lower-case hex digits",
@@ -310,6 +327,76 @@ pub fn parse_provenance(text: &str, path: &Path) -> Result<Provenance> {
         ));
     }
     Ok(p)
+}
+
+fn collect_files(base: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
+    if path.is_dir() {
+        if path.file_name().is_some_and(|n| n == "target") {
+            return Ok(());
+        }
+        for dir in subdirectories(path)? {
+            collect_files(base, &dir, out)?;
+        }
+        let entries = std::fs::read_dir(path).map_err(|source| Error::Io {
+            path: path.to_owned(),
+            source,
+        })?;
+        for entry in entries {
+            let file = entry
+                .map_err(|source| Error::Io {
+                    path: path.to_owned(),
+                    source,
+                })?
+                .path();
+            if file.is_file() {
+                collect_files(base, &file, out)?;
+            }
+        }
+    } else {
+        let rel = path
+            .strip_prefix(base)
+            .map_err(|_| invalid(path, "outside the workspace"))?;
+        let name: Vec<&str> = rel
+            .components()
+            .map(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .ok_or_else(|| invalid(path, "non-UTF-8 file name"))
+            })
+            .collect::<Result<_>>()?;
+        out.push((name.join("/"), path.to_owned()));
+    }
+    Ok(())
+}
+
+/// Content hash of the reference recipe ([`RECIPE_FILES`] under `root`):
+/// SHA-256 over each file's relative path, a zero byte, its length (u64,
+/// little-endian) and its bytes, in sorted path order (D-014).
+///
+/// # Errors
+/// [`Error::Io`] if a recipe file cannot be read.
+pub fn recipe_sha256(root: &Path) -> Result<String> {
+    let mut files = Vec::new();
+    for entry in RECIPE_FILES {
+        collect_files(root, &root.join(entry), &mut files)?;
+    }
+    files.sort();
+    let mut hasher = Sha256::new();
+    for (name, path) in files {
+        let bytes = read(&path)?;
+        hasher.update(name.as_bytes());
+        hasher.update([0_u8]);
+        hasher.update(u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut s, b| {
+            // Writing to a String cannot fail.
+            let _ = write!(s, "{b:02x}");
+            s
+        }))
 }
 
 /// A validated fixture directory.
@@ -445,6 +532,7 @@ compiler = "GNU Fortran (Ubuntu 13.3.0) 13.3.0"
 compiler_flags = ["-O2", "-fdefault-real-8", "-fdefault-double-8"]
 rewrite_rules_version = 1
 case_sha256 = "{case_sha}"
+recipe_sha256 = "{zeros}"
 recipe_commit = "{commit}"
 generated_utc = "2026-11-27T12:00:00Z"
 command_line = ["cargo", "xtask", "oracle", "generate"]
@@ -530,6 +618,38 @@ command_line = ["cargo", "xtask", "oracle", "generate"]
         std::fs::write(dir.join("provenance.toml"), provenance(&sha)).unwrap();
         std::fs::write(dir.join("params.par"), "parameters\n").unwrap();
         dir
+    }
+
+    #[test]
+    fn recipe_hash_tracks_content() {
+        let root = tempfile::tempdir().unwrap();
+        for f in ["xtask/src", "oracle-case/src", "vendor/gslib-2.0"] {
+            std::fs::create_dir_all(root.path().join(f)).unwrap();
+        }
+        for f in [
+            "xtask/src/main.rs",
+            "oracle-case/src/lib.rs",
+            "vendor/gslib-2.0/MANIFEST.sha256",
+            "Cargo.toml",
+            "Cargo.lock",
+        ] {
+            std::fs::write(root.path().join(f), f).unwrap();
+        }
+        let before = recipe_sha256(root.path()).unwrap();
+        assert_eq!(before, recipe_sha256(root.path()).unwrap(), "deterministic");
+        std::fs::create_dir_all(root.path().join("xtask/target")).unwrap();
+        std::fs::write(root.path().join("xtask/target/junk"), "x").unwrap();
+        assert_eq!(
+            before,
+            recipe_sha256(root.path()).unwrap(),
+            "target/ ignored"
+        );
+        std::fs::write(root.path().join("xtask/src/main.rs"), "changed").unwrap();
+        assert_ne!(
+            before,
+            recipe_sha256(root.path()).unwrap(),
+            "content change detected"
+        );
     }
 
     #[test]

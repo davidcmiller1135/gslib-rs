@@ -90,7 +90,7 @@ fn quote(s: &str) -> String {
     super::toml_string(s)
 }
 
-fn provenance(build: &BuildOutcome, case_sha256: &str, commit: &str) -> AppResult<String> {
+fn provenance(build: &BuildOutcome, case_sha256: &str, recipe: &Recipe) -> AppResult<String> {
     let mut p = String::new();
     writeln!(
         p,
@@ -107,7 +107,8 @@ fn provenance(build: &BuildOutcome, case_sha256: &str, commit: &str) -> AppResul
     writeln!(p, "compiler_flags = [{}]", flags.join(", "))?;
     writeln!(p, "rewrite_rules_version = {}", rewrite::RULES_VERSION)?;
     writeln!(p, "case_sha256 = {}", quote(case_sha256))?;
-    writeln!(p, "recipe_commit = {}", quote(commit))?;
+    writeln!(p, "recipe_sha256 = {}", quote(&recipe.sha256))?;
+    writeln!(p, "recipe_commit = {}", quote(&recipe.commit))?;
     writeln!(p, "generated_utc = {}", quote(&now_utc()?))?;
     let args: Vec<String> = std::env::args().map(|a| quote(&a)).collect();
     writeln!(p, "command_line = [{}]", args.join(", "))?;
@@ -115,12 +116,18 @@ fn provenance(build: &BuildOutcome, case_sha256: &str, commit: &str) -> AppResul
 }
 
 /// Run one case and write its fixture files.
+/// The recipe's identity: its content hash and the commit it ran from.
+struct Recipe {
+    sha256: String,
+    commit: String,
+}
+
 fn generate_case(
     case_dir: &Path,
     program: &str,
     out: &Path,
     build: &BuildOutcome,
-    commit: &str,
+    recipe: &Recipe,
 ) -> AppResult {
     let case_path = case_dir.join("case.toml");
     let case_bytes = std::fs::read(&case_path)?;
@@ -193,7 +200,7 @@ fn generate_case(
     let provenance_path = case_dir.join("provenance.toml");
     std::fs::write(
         &provenance_path,
-        provenance(build, &sha256_hex(&case_bytes), commit)?,
+        provenance(build, &sha256_hex(&case_bytes), recipe)?,
     )?;
     // The fixture must now pass the same checks the harness applies.
     oracle_case::load_fixture(case_dir)?;
@@ -215,7 +222,10 @@ fn subdirs(dir: &Path) -> AppResult<Vec<std::path::PathBuf>> {
 /// Generate fixtures for every case under `tests/fixtures/gslib/`, or only
 /// for `program`.
 pub(crate) fn generate(root: &Path, out: &Path, program: Option<&str>) -> AppResult {
-    let commit = recipe_commit(root)?;
+    let recipe = Recipe {
+        commit: recipe_commit(root)?,
+        sha256: oracle_case::recipe_sha256(root)?,
+    };
     let build = super::build(root, out)?;
     let fixtures = root.join("tests/fixtures/gslib");
     let mut count = 0;
@@ -228,14 +238,16 @@ pub(crate) fn generate(root: &Path, out: &Path, program: Option<&str>) -> AppRes
             continue;
         }
         for case_dir in subdirs(&program_dir)? {
-            generate_case(&case_dir, name, out, &build, &commit)?;
+            generate_case(&case_dir, name, out, &build, &recipe)?;
             count += 1;
             writeln!(std::io::stdout(), "generated {}", case_dir.display())?;
         }
     }
     writeln!(
         std::io::stdout(),
-        "{count} fixture(s) generated at commit {commit}"
+        "{count} fixture(s) generated; recipe {} (commit {})",
+        recipe.sha256,
+        recipe.commit
     )?;
     Ok(())
 }

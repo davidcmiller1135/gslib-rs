@@ -55,7 +55,10 @@ impl<'a> Comparison<'a> {
     /// Whether the case declares `quantity` an expected deviation.
     #[must_use]
     pub fn is_expected_deviation(&self, quantity: &str) -> bool {
-        self.case.expected_deviations.iter().any(|d| d.quantity == quantity)
+        self.case
+            .expected_deviations
+            .iter()
+            .any(|d| d.quantity == quantity)
     }
 
     /// The tolerance for `quantity`: the case's override, or `default`.
@@ -72,17 +75,28 @@ impl<'a> Comparison<'a> {
     }
 
     /// Compare one value. `scale` must be positive.
-    pub fn value(&mut self, quantity: &str, ours: f64, gslib: f64, scale: f64, default: Tolerance, location: impl Fn() -> String) {
+    pub fn value(
+        &mut self,
+        quantity: &str,
+        ours: f64,
+        gslib: f64,
+        scale: f64,
+        default: Tolerance,
+        location: impl Fn() -> String,
+    ) {
         if self.is_expected_deviation(quantity) {
             return;
         }
         let tol = self.tolerance(quantity, default);
         let error = (ours - gslib).abs();
         let scaled = error / scale;
-        let ok = error <= tol.relative.mul_add(scale, tol.absolute) && ours.is_finite() == gslib.is_finite();
-        let slot = match self.worst.iter_mut().find(|(q, _)| q == quantity) {
-            Some((_, w)) => w,
-            None => {
+        let ok = error <= tol.relative.mul_add(scale, tol.absolute)
+            && ours.is_finite() == gslib.is_finite();
+        let index = self
+            .worst
+            .iter()
+            .position(|(q, _)| q == quantity)
+            .unwrap_or_else(|| {
                 self.worst.push((
                     quantity.to_owned(),
                     Worst {
@@ -90,13 +104,11 @@ impl<'a> Comparison<'a> {
                         location: String::new(),
                     },
                 ));
-                match self.worst.last_mut() {
-                    Some((_, w)) => w,
-                    None => return,
-                }
-            }
-        };
-        if scaled > slot.scaled_error || scaled.is_nan() {
+                self.worst.len() - 1
+            });
+        if let Some((_, slot)) = self.worst.get_mut(index)
+            && (scaled > slot.scaled_error || scaled.is_nan())
+        {
             slot.scaled_error = scaled;
             slot.location = location();
         }
@@ -146,7 +158,9 @@ mod tests {
         let mut cmp = Comparison::new(&c);
         cmp.value("gamma", 1.0 + 5e-13, 1.0, 1.0, DIRECT, String::new);
         assert!(cmp.failures().is_empty(), "within 1e-12");
-        cmp.value("gamma", 1.0 + 5e-12, 1.0, 1.0, DIRECT, || "lag 3".to_owned());
+        cmp.value("gamma", 1.0 + 5e-12, 1.0, 1.0, DIRECT, || {
+            "lag 3".to_owned()
+        });
         assert_eq!(cmp.failures().len(), 1);
         assert!(cmp.failures()[0].contains("lag 3"), "{:?}", cmp.failures());
         assert_eq!(cmp.worst()[0].1.location, "lag 3");
