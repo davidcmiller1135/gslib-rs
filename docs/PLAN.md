@@ -125,7 +125,7 @@ and acceptance tests named in it.
 | # | Work | Spec | Depends on |
 |---|---|---|---|
 | C1 | **Spec first:** directional `gamv` (azimuth/dip, angular tolerances, bandwidths) and the other nine variogram types. Decide which types are in scope, how `ivtype` maps to a Rust type, and how the cross-variable inputs are shaped. Then fixtures. | new `docs/spec/gamv.md` | A2 (B4 for trimmed cases) |
-| C2 | **Spec first:** search neighbourhood (anisotropic ellipsoid, octants, super-block) behind one trait (`AGENTS.md`, *No ceremony*: three implementations qualify). Covers GSLIB's order of equidistant data, which `kt3d` parity needs. | new `docs/spec/search.md` | A2 |
+| C2 | **Spec done** (`docs/spec/search.md`, D-024…D-028). Search neighbourhood: data search with brute force and an exact super-block, `kt3d` debug fixtures, `sgsim` node search and two-part search (plan steps 1–6) | `docs/spec/search.md` | A2 |
 | C3 | `kt3d` harness step 7: simple and ordinary kriging at points with a search covering every datum; calibrate k in k·cond(A)·ε (D-010) | `harness.md` step 7 | C2 for the search, B1 for data |
 | C4 | **Spec first:** `kt3d` completeness (block discretisation, trend/KT, external drift, cross-validation, gridded output, `OnSingular` policy and its UNEST code, ledger item "unsolvable systems are skipped") | new `docs/spec/kt3d.md` | C3 |
 | C5 | **Spec first:** ACORN and exact-stream parity as an opt-in. Decides the RNG trait, the `Seed` type, the random path and the per-realization seed derivation. | new `docs/spec/rng.md` | A2 |

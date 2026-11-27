@@ -5,10 +5,11 @@ use crate::geometry::Point3;
 use crate::sample::Sample;
 
 /// Use at most `max_samples` of the nearest samples within `radius`
-/// (GSLIB `ndmax`/`nodmax` and `radius`; names recalled, TODO(parity-verify)).
+/// (GSLIB `ndmax` and an isotropic `radius`, as in `KT3D.FOR`; F-012).
 ///
-/// Distance is Euclidean. GSLIB's anisotropic search ellipsoid and octant
-/// search are not implemented yet.
+/// Distance is Euclidean. GSLIB's anisotropic search ellipsoid, `ndmin`,
+/// octants and super-blocks are specified in `docs/spec/search.md` and not
+/// implemented yet.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Search {
     max_samples: usize,

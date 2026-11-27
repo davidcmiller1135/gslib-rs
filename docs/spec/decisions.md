@@ -968,3 +968,45 @@ From `vendor/gslib-2.0/src/`:
   - GSLIB lists data in its own order (D-024). Order is compared exactly
     only where no two selected data are equidistant; within a tied group
     the comparison is as a set.
+
+## D-028: Two data on one node in the two-part search
+- Status: decided
+- Topic: search.md
+- Question: With `sgsim`'s two-part search (`sstrat = 1`), data are moved
+  to their nearest nodes. What happens when two data land on the same
+  node?
+- Options: error by default with GSLIB's keep-closest as an opt-in; keep
+  the closest, like GSLIB; always an error.
+- Decision: **an error by default**, naming both data (1-based rows) and
+  the node. GSLIB's rule is the opt-in policy `OnSharedNode::KeepClosest`,
+  reproduced exactly: the smaller L1 distance from the datum to the node
+  wins, and on an exact tie the later datum wins (`SGSIM.FOR`, lines
+  869–881, `test.le.test2`).
+- Rationale: GSLIB drops a datum from the simulation with only a debug-file
+  warning, a silent coercion (`AGENTS.md`, *Silent coercions are opt-in,
+  off by default*). Keeping the rule as a policy lets a GSLIB-compatibility
+  mode run existing parameter files.
+- Consequences: the same rule, applied by `AGENTS.md` rather than asked,
+  covers a datum outside the grid. GSLIB clamps it to the edge node
+  (`getindx` ignores `inflag`, F-013); here that is an error, with the
+  clamping as the opt-in policy `OutsideGrid::ClampToEdge`.
+
+## Finding F-013: Silent limits in sgsim's search (2026-11-27)
+From `vendor/gslib-2.0/src/`:
+
+- **Data outside the grid, two-part search:** `getindx`
+  (`GSLIB/GETINDX.FOR`) clamps an index to `1..n` and reports it through
+  `inflag`. `sgsim` ignores the flag when assigning data to nodes
+  (`SGSIM.FOR`, lines 857–859), so a datum outside the grid is moved to
+  the edge node, however far away it lies.
+- **Node search extent:** `ctable` caps the lookup table at
+  `nctx = min((MAXCTX−1)/2, nx−1)`, and likewise for y and z (`SGSIM.FOR`,
+  around line 1087). The stock limits are `MAXCTX = MAXCTY = 71` and
+  `MAXCTZ = 1` (`SGSIM.INC`, line 38). Previously simulated nodes are never
+  searched beyond ±35 nodes horizontally, nor at all vertically (`nctz =
+  0`), whatever the search radius. GSLIB notes this only in its debug file
+  ("Node Values are not searched beyond this distance!").
+- **Consequence for fixtures:** the reference build uses the stock
+  `.INC` limits. `sgsim` fixtures (harness step 8) must use 2-D grids
+  within ±35 nodes of the search, or the recipe must patch the limits in
+  its copy (a source patch recorded in provenance).

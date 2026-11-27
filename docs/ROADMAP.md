@@ -210,7 +210,12 @@ reference run, and say which.
   (F-005); still to check in each simulation program. §2, `cli/src/main.rs`
 - [ ] Grid conventions: `xmn` is the first cell's centre, x-fastest order:
   `simulation/grid.rs`
-- [ ] Search parameter names (`ndmax`, `nodmax`, `radius`): `search.rs`
+- [x] Search parameter names (`ndmax`, `nodmax`, `radius`): `ndmin, ndmax`,
+  `noct`, `radius radius1 radius2`, `sang1..3` in `KT3D.FOR`; `nodmax`,
+  `sstrat` in `SGSIM.FOR`. F-012.
+- [ ] GSLIB's super-block selection (`picksup`) can miss data inside the
+  search ellipsoid under a rotated anisotropic search: probe in F-012,
+  fixture in `docs/spec/search.md` step 3.
 - [ ] `sasim` schedule parameters (`t0, redfac, ka, k, num, Omin`) and
   objective normalisation by initial values: `simulation/sasim.rs`
 - [x] `gamv` lag definition: centres `(il−2)·xlag`, inclusive `±xltol`
