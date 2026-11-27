@@ -1,201 +1,275 @@
-use assert_cmd::Command;
-use std::io::Write;
-use tempfile::NamedTempFile;
+//! End-to-end tests of the `gslib-rs` binary.
 
-/// Create a minimal 4-column GSLIB file (X, Y, Z, V).
-fn make_sample_gslib() -> NamedTempFile {
-    let mut f = NamedTempFile::new().unwrap();
-    writeln!(f, "Test Data").unwrap(); // title
-    writeln!(f, "4").unwrap(); // nvar
-    writeln!(f, "X").unwrap();
-    writeln!(f, "Y").unwrap();
-    writeln!(f, "Z").unwrap();
-    writeln!(f, "V").unwrap();
-    writeln!(f, "0.0 0.0 0.0 1.0").unwrap();
-    writeln!(f, "1.0 0.0 0.0 2.0").unwrap();
-    writeln!(f, "0.0 1.0 0.0 3.0").unwrap();
-    f
-}
+#[cfg(test)]
+mod cli {
+    use std::path::{Path, PathBuf};
 
-#[test]
-fn variogram_cli_produces_csv_and_plot() {
-    let data_file = make_sample_gslib();
-    let out_csv = NamedTempFile::new().unwrap();
-    let out_png = NamedTempFile::new().unwrap().path().with_extension("png");
+    use assert_cmd::Command;
+    use predicates::str::contains;
+    use tempfile::TempDir;
 
-    let mut cmd = Command::cargo_bin("cli").unwrap();
-    cmd.arg("variogram")
-        .arg("--input")
-        .arg(data_file.path())
-        .arg("--max-dist")
-        .arg("2.0")
-        .arg("--n-lags")
-        .arg("2")
-        .arg("--out-csv")
-        .arg(out_csv.path())
-        .arg("--plot")
-        .arg(&out_png);
-    cmd.assert().success();
+    /// A GSLIB file with columns X, Y, Z, V.
+    const DATA: &str = "Test Data\n4\nX\nY\nZ\nV\n0 0 0 1\n10 0 0 2\n0 10 0 3\n";
 
-    let csv_text = std::fs::read_to_string(out_csv.path()).unwrap();
-    let mut lines = csv_text.lines();
-    assert_eq!(lines.next().unwrap(), "lag,semivar");
-    assert!(lines.next().unwrap().contains(','));
+    /// Model flags: exponential, sill 1, practical range 30.
+    const MODEL: [&str; 2] = ["--structure", "exp:1:30"];
 
-    let meta = std::fs::metadata(&out_png).unwrap();
-    assert!(meta.len() > 0);
-}
-
-#[test]
-fn sgsim_cli_writes_gslib_files() {
-    let data_file = make_sample_gslib();
-    let sim_file = make_sample_gslib();
-
-    let dir = tempfile::tempdir().unwrap();
-    let prefix = dir.path().join("out");
-    let mut cmd = Command::cargo_bin("cli").unwrap();
-    cmd.arg("sgsim")
-        .arg("--data")
-        .arg(data_file.path())
-        .arg("--sim")
-        .arg(sim_file.path())
-        .arg("--nsim")
-        .arg("2")
-        .arg("--seed")
-        .arg("123")
-        .arg("--out-prefix")
-        .arg(&prefix);
-    cmd.assert().success();
-
-    for i in 0..2 {
-        let path = prefix.with_file_name(format!("out_{}.gslib", i));
-        let meta = std::fs::metadata(&path).expect("missing output gslib");
-        assert!(meta.len() > 0, "GSLIB file {} empty", path.display());
+    fn write(dir: &TempDir, name: &str, contents: &str) -> PathBuf {
+        let path = dir.path().join(name);
+        std::fs::write(&path, contents).unwrap();
+        path
     }
-}
 
-#[test]
-fn sisim_cli_all_ones() {
-    let data_file = make_sample_gslib();
-    let sim_file = make_sample_gslib();
-
-    let dir = tempfile::tempdir().unwrap();
-    let prefix = dir.path().join("out");
-    let mut cmd = Command::cargo_bin("cli").unwrap();
-    cmd.arg("sisim")
-        .arg("--data")
-        .arg(data_file.path())
-        .arg("--sim")
-        .arg(sim_file.path())
-        .arg("--threshold")
-        .arg("5.0")
-        .arg("--nsim")
-        .arg("2")
-        .arg("--out-prefix")
-        .arg(&prefix);
-    cmd.assert().success();
-
-    for i in 0..2 {
-        let path = prefix.with_file_name(format!("out_{}.gslib", i));
-        assert_eq!(last_column(&path, &format!("ind_{i}")), vec![1.0; 3]);
+    fn bin() -> Command {
+        Command::cargo_bin("gslib-rs").unwrap()
     }
-}
 
-#[test]
-fn sisim_cli_all_zeros() {
-    let data_file = make_sample_gslib();
-    let sim_file = make_sample_gslib();
+    /// Parse a GSLIB file into (names, rows).
+    fn read(path: &Path) -> (Vec<String>, Vec<Vec<f64>>) {
+        let text = std::fs::read_to_string(path).unwrap();
+        let mut lines = text.lines().skip(1);
+        let nvar: usize = lines.next().unwrap().trim().parse().unwrap();
+        let names = lines.by_ref().take(nvar).map(str::to_owned).collect();
+        let rows = lines
+            .map(|l| l.split_whitespace().map(|t| t.parse().unwrap()).collect())
+            .collect();
+        (names, rows)
+    }
 
-    let dir = tempfile::tempdir().unwrap();
-    let prefix = dir.path().join("out");
-    let mut cmd = Command::cargo_bin("cli").unwrap();
-    cmd.arg("sisim")
-        .arg("--data")
-        .arg(data_file.path())
-        .arg("--sim")
-        .arg(sim_file.path())
-        .arg("--threshold")
-        .arg("0.0")
-        .arg("--nsim")
-        .arg("1")
-        .arg("--out-prefix")
-        .arg(&prefix);
-    cmd.assert().success();
+    fn column(rows: &[Vec<f64>], j: usize) -> Vec<f64> {
+        rows.iter().map(|r| r[j]).collect()
+    }
 
-    let path = prefix.with_file_name("out_0.gslib");
-    assert_eq!(last_column(&path, "ind_0"), vec![0.0; 3]);
-}
+    fn realization(prefix: &Path, i: usize) -> PathBuf {
+        PathBuf::from(format!("{}_{i}.gslib", prefix.display()))
+    }
 
-#[test]
-fn sgsim_cli_keeps_sim_columns_and_appends_result() {
-    let data_file = make_sample_gslib();
-    let sim_file = make_sample_gslib();
+    #[test]
+    fn variogram_writes_csv_and_plot_with_model() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let csv = dir.path().join("v.csv");
+        let png = dir.path().join("v.png");
+        bin()
+            .args(["variogram", "--max-dist", "20", "--n-lags", "2"])
+            .arg("--input")
+            .arg(&data)
+            .arg("--out-csv")
+            .arg(&csv)
+            .arg("--plot")
+            .arg(&png)
+            .args(MODEL)
+            .assert()
+            .success();
+        let text = std::fs::read_to_string(&csv).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "lag,mean_distance,pairs,gamma");
+        assert_eq!(lines.len(), 3, "{text}");
+        // Two pairs at distance 10 and one at 14.1: all in the second lag.
+        assert_eq!(lines[1], "5,,0,", "first lag is empty, not zero");
+        assert!(lines[2].starts_with("15,"), "{}", lines[2]);
+        assert!(lines[2].contains(",3,"), "three pairs: {}", lines[2]);
+        assert!(std::fs::metadata(&png).unwrap().len() > 0, "plot is empty");
+    }
 
-    let dir = tempfile::tempdir().unwrap();
-    let prefix = dir.path().join("sgs_cols");
-    Command::cargo_bin("cli")
-        .unwrap()
-        .arg("sgsim")
-        .arg("--data")
-        .arg(data_file.path())
-        .arg("--sim")
-        .arg(sim_file.path())
-        .arg("--seed")
-        .arg("1")
-        .arg("--out-prefix")
-        .arg(&prefix)
-        .assert()
-        .success();
+    #[test]
+    fn variogram_defaults_to_stdout() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        bin()
+            .args(["variogram", "-d", "20", "-n", "1", "-i"])
+            .arg(&data)
+            .assert()
+            .success()
+            .stdout(contains("lag,mean_distance,pairs,gamma"))
+            .stdout(contains(",3,"));
+    }
 
-    let path = prefix.with_file_name("sgs_cols_0.gslib");
-    let text = std::fs::read_to_string(&path).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines[1], "5");
-    assert_eq!(&lines[2..7], ["X", "Y", "Z", "V", "sim_0"]);
-    // The sim file's own V column (1, 2, 3) must be carried through unchanged.
-    let v: Vec<f64> = lines[7..]
-        .iter()
-        .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
-        .collect();
-    assert_eq!(v, vec![1.0, 2.0, 3.0]);
-}
+    #[test]
+    fn ordinary_kriging_honours_data_and_reports_variance() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let targets = write(&dir, "t.dat", "targets\n3\nX\nY\nZ\n0 0 0\n5 5 0\n");
+        let out = dir.path().join("k.dat");
+        bin()
+            .args(["krige", "--kind", "ordinary"])
+            .arg("--data")
+            .arg(&data)
+            .arg("--targets")
+            .arg(&targets)
+            .arg("--out")
+            .arg(&out)
+            .args(MODEL)
+            .assert()
+            .success();
+        let (names, rows) = read(&out);
+        assert_eq!(names, ["X", "Y", "Z", "estimate", "variance"]);
+        assert!((rows[0][3] - 1.0).abs() < 1e-9, "exact at datum: {rows:?}");
+        assert!(rows[0][4].abs() < 1e-9, "zero variance at datum: {rows:?}");
+        assert!(
+            rows[1][4] > 0.0,
+            "positive variance away from data: {rows:?}"
+        );
+    }
 
-#[test]
-fn sgsim_cli_rejects_data_without_value_column() {
-    let mut data_file = NamedTempFile::new().unwrap();
-    writeln!(data_file, "Coords only\n3\nX\nY\nZ\n0 0 0").unwrap();
-    let sim_file = make_sample_gslib();
-    let dir = tempfile::tempdir().unwrap();
-    let prefix = dir.path().join("bad");
+    #[test]
+    fn simple_kriging_far_away_returns_the_mean() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let targets = write(&dir, "t.dat", "targets\n3\nX\nY\nZ\n1e6 0 0\n");
+        let out = dir.path().join("k.dat");
+        bin()
+            .args(["krige", "--kind", "simple", "--mean", "7.5"])
+            .arg("--data")
+            .arg(&data)
+            .arg("--targets")
+            .arg(&targets)
+            .arg("--out")
+            .arg(&out)
+            .args(MODEL)
+            .assert()
+            .success();
+        let (_, rows) = read(&out);
+        assert!((rows[0][3] - 7.5).abs() < 1e-9, "{rows:?}");
+        assert!(
+            (rows[0][4] - 1.0).abs() < 1e-9,
+            "variance is the sill: {rows:?}"
+        );
+    }
 
-    Command::cargo_bin("cli")
-        .unwrap()
-        .arg("sgsim")
-        .arg("--data")
-        .arg(data_file.path())
-        .arg("--sim")
-        .arg(sim_file.path())
-        .arg("--out-prefix")
-        .arg(&prefix)
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("expected at least 4"));
-}
+    fn sgsim(dir: &TempDir, prefix: &str, seed: &str) -> PathBuf {
+        let data = write(dir, "d.dat", DATA);
+        let nodes = write(
+            dir,
+            "n.dat",
+            "nodes\n4\nX\nY\nZ\nKeep\n0 0 0 7\n5 0 0 7\n5 5 0 7\n20 20 0 7\n",
+        );
+        let prefix = dir.path().join(prefix);
+        bin()
+            .args(["sgsim", "--nsim", "2", "--seed", seed])
+            .arg("--data")
+            .arg(&data)
+            .arg("--sim")
+            .arg(&nodes)
+            .arg("--out-prefix")
+            .arg(&prefix)
+            .args(MODEL)
+            .assert()
+            .success();
+        prefix
+    }
 
-/// Read a GSLIB output file, check its last variable is named `name`, and
-/// return that column's values.
-fn last_column(path: &std::path::Path, name: &str) -> Vec<f64> {
-    let text = std::fs::read_to_string(path).unwrap();
-    let mut lines = text.lines();
-    lines.next(); // title
-    let nvar: usize = lines.next().unwrap().trim().parse().unwrap();
-    let names: Vec<&str> = lines.by_ref().take(nvar).collect();
-    assert_eq!(names.last().copied(), Some(name), "last variable name");
-    lines
-        .map(|l| {
-            let fields: Vec<&str> = l.split_whitespace().collect();
-            assert_eq!(fields.len(), nvar);
-            fields[nvar - 1].parse().unwrap()
-        })
-        .collect()
+    #[test]
+    fn sgsim_appends_back_transformed_realizations() {
+        let dir = TempDir::new().unwrap();
+        let prefix = sgsim(&dir, "sgs", "1");
+        for i in 0..2 {
+            let (names, rows) = read(&realization(&prefix, i));
+            assert_eq!(names, ["X", "Y", "Z", "Keep", &format!("sim_{i}")]);
+            assert_eq!(column(&rows, 3), vec![7.0; 4], "existing column preserved");
+            let sim = column(&rows, 4);
+            assert!((sim[0] - 1.0).abs() < 1e-9, "datum reproduced: {sim:?}");
+            assert!(
+                sim.iter().all(|&v| (1.0..=3.0).contains(&v)),
+                "clamped to data range: {sim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sgsim_is_reproducible_from_its_seed() {
+        let dir = TempDir::new().unwrap();
+        let a = read(&realization(&sgsim(&dir, "a", "42"), 1));
+        let b = read(&realization(&sgsim(&dir, "b", "42"), 1));
+        assert_eq!(a, b);
+    }
+
+    fn sisim(threshold: &str) -> Vec<f64> {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let nodes = write(&dir, "n.dat", "nodes\n3\nX\nY\nZ\n1 1 0\n4 4 0\n50 50 0\n");
+        let prefix = dir.path().join("sis");
+        bin()
+            .args(["sisim", "--threshold", threshold])
+            .arg("--data")
+            .arg(&data)
+            .arg("--sim")
+            .arg(&nodes)
+            .arg("--out-prefix")
+            .arg(&prefix)
+            .args(MODEL)
+            .assert()
+            .success();
+        let (names, rows) = read(&realization(&prefix, 0));
+        assert_eq!(names.last().map(String::as_str), Some("ind_0"));
+        column(&rows, 3)
+    }
+
+    #[test]
+    fn sisim_all_below_threshold_gives_all_ones() {
+        assert_eq!(sisim("5"), vec![1.0; 3]);
+    }
+
+    #[test]
+    fn sisim_all_above_threshold_gives_all_zeros() {
+        assert_eq!(sisim("0"), vec![0.0; 3]);
+    }
+
+    #[test]
+    fn missing_value_column_is_a_clear_error() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", "coords\n3\nX\nY\nZ\n0 0 0\n");
+        bin()
+            .args(["variogram", "-d", "1", "-n", "1", "-i"])
+            .arg(&data)
+            .assert()
+            .failure()
+            .stderr(contains("column 4 requested but the file has 3"));
+    }
+
+    #[test]
+    fn model_is_required_for_simulation() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        bin()
+            .args(["sgsim", "--out-prefix", "unused"])
+            .arg("--data")
+            .arg(&data)
+            .arg("--sim")
+            .arg(&data)
+            .assert()
+            .failure()
+            .stderr(contains("total sill must be positive"));
+    }
+
+    #[test]
+    fn bad_structure_spec_is_rejected_by_the_parser() {
+        bin()
+            .args([
+                "variogram",
+                "-i",
+                "x",
+                "-d",
+                "1",
+                "-n",
+                "1",
+                "--structure",
+                "sph:1",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("expected TYPE:CC:A_HMAX"));
+    }
+
+    #[test]
+    fn malformed_file_reports_line_number() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", "t\n4\nX\nY\nZ\nV\n0 0 0 1\n0 0 oops 1\n");
+        bin()
+            .args(["variogram", "-d", "1", "-n", "1", "-i"])
+            .arg(&data)
+            .assert()
+            .failure()
+            .stderr(contains("line 8"));
+    }
 }

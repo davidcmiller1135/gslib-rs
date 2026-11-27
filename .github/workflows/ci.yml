@@ -6,21 +6,62 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
 
 jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Toolchain comes from rust-toolchain.toml.
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # plotters' font stack links system fontconfig via pkg-config.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets
+      - name: Clippy without the plot feature
+        run: cargo clippy -p gslib_rs --all-targets --no-default-features
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      # plotters' font stack links system fontconfig via pkg-config.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all --check
-      - name: Build
-        run: cargo build --workspace --all-targets
-      - name: Test
-        run: cargo test --workspace
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: Test without the plot feature
+        run: cargo test -p gslib_rs --no-default-features
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # plotters' font stack links system fontconfig via pkg-config.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # plotters' font stack links system fontconfig via pkg-config.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+      # Keep in sync with `rust-version` in Cargo.toml. `+1.89` overrides
+      # rust-toolchain.toml.
+      - run: rustup toolchain install 1.89 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +1.89 test --workspace
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2

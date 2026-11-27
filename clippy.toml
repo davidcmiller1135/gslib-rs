@@ -1,0 +1,9 @@
+# Test code may unwrap/expect/panic/index: a failing test *should* panic.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true
+# Let clippy suggest API-changing improvements; we have no stable API yet.
+avoid-breaking-exported-api = false

@@ -1,18 +1,34 @@
 [package]
 name = "gslib_rs"
-version = "0.1.0"
-edition = "2024"
+description = "Geostatistics in Rust: a port of GSLIB (variograms, kriging, simulation)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
-ndarray = "0.15"        # for multi-dimensional arrays
-rand = "0.8"            # random number generation
-nalgebra = "0.32"       # linear algebra
-plotters = "0.3"
-lazy_static = "1.4"
-rand_distr = "0.4"
-statrs = "0.15" # for Normal::inverse_cdf
+nalgebra = "0.35"
+plotters = { version = "0.3.7", optional = true }
+rand = { version = "0.10", default-features = false, features = ["std"] }
+rand_distr = { version = "0.6", default-features = false, features = ["std"] }
+libm = "0.2"
+statrs = "0.19"
+thiserror = "2"
+
+[features]
+default = ["plot"]
+## PNG/SVG plotting via plotters (pulls in font rendering, incl. fontconfig).
+plot = ["dep:plotters"]
 
 [dev-dependencies]
-tempfile = "3.3"
-
-
+approx = "0.5"
+proptest = "1.12"
+rand_chacha = "0.10"
+tempfile = "3.27"

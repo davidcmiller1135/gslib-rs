@@ -1,400 +1,375 @@
-//! Plotting utilities for GSLIB‐RS using the `plotters` crate.
+//! Plots rendered with `plotters` to PNG or SVG.
+//!
+//! Each plot is a value implementing [`Figure`]; [`save`] picks the backend
+//! from the file extension, so drawing code is written once.
 
-use plotters::prelude::*;
-use std::ffi::OsStr;
+use std::ops::Range;
 use std::path::Path;
 
-/// Plot an empirical variogram (lags → semivariances) and optional model curve.
-pub fn plot_variogram(
-    lags: &[f64],
-    semivs: &[f64],
-    model_lags: Option<&[f64]>,
-    model_semivs: Option<&[f64]>,
-    out_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // 1) Check inputs
-    assert_eq!(
-        lags.len(),
-        semivs.len(),
-        "lags and semivariances lengths must match"
-    );
+use plotters::coord::Shift;
+use plotters::prelude::*;
 
-    // 2) Compute x_max, y_max from both empirical and model (if any)
-    let mut all_x: Vec<f64> = lags.to_vec();
-    if let Some(m) = model_lags {
-        all_x.extend_from_slice(m);
-    }
-    let x_max = all_x.into_iter().fold(f64::NEG_INFINITY, f64::max);
+use crate::error::{Error, Result};
+use crate::num::{floor_index, to_f64};
 
-    let mut all_y: Vec<f64> = semivs.to_vec();
-    if let Some(m) = model_semivs {
-        all_y.extend_from_slice(m);
-    }
-    let y_max = all_y.into_iter().fold(f64::NEG_INFINITY, f64::max);
+/// Result of drawing on a backend.
+pub type DrawResult<DB> =
+    std::result::Result<(), DrawingAreaErrorKind<<DB as DrawingBackend>::ErrorType>>;
 
-    // 3) Choose backend
-    let size = (800, 600);
-    let ext = out_path
-        .extension()
-        .and_then(OsStr::to_str)
-        .unwrap_or("")
-        .to_lowercase();
+/// Something that can be drawn onto any plotters backend.
+pub trait Figure {
+    /// Image size in pixels.
+    fn size(&self) -> (u32, u32);
 
-    // 4a) SVG
-    if ext == "svg" {
-        let root = SVGBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Empirical Variogram", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(0.0..x_max, 0.0..y_max)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        chart
-            .draw_series(
-                lags.iter()
-                    .zip(semivs.iter())
-                    .map(|(&h, &g)| Circle::new((h, g), 3, RED.filled())),
-            )
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        if let (Some(ml), Some(ms)) = (model_lags, model_semivs) {
-            chart
-                .draw_series(LineSeries::new(
-                    ml.iter().cloned().zip(ms.iter().cloned()),
-                    BLUE.stroke_width(2),
-                ))
-                .map_err(Box::<dyn std::error::Error>::from)?;
-        }
-
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-        return Ok(());
-    }
-
-    // 4b) Bitmap
-    {
-        let root = BitMapBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Empirical Variogram", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(0.0..x_max, 0.0..y_max)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        chart
-            .draw_series(
-                lags.iter()
-                    .zip(semivs.iter())
-                    .map(|(&h, &g)| Circle::new((h, g), 3, RED.filled())),
-            )
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        if let (Some(ml), Some(ms)) = (model_lags, model_semivs) {
-            chart
-                .draw_series(LineSeries::new(
-                    ml.iter().cloned().zip(ms.iter().cloned()),
-                    BLUE.stroke_width(2),
-                ))
-                .map_err(Box::<dyn std::error::Error>::from)?;
-        }
-
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-    }
-
-    Ok(())
+    /// Draw onto `root`.
+    ///
+    /// # Errors
+    /// Any backend error.
+    fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB>;
 }
 
-/// Scatter plot of y vs. x. Optionally overlay regression.
-pub fn plot_scatter(
-    x: &[f64],
-    y: &[f64],
-    out_path: &Path,
-    with_regression: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!(x.len(), y.len(), "x and y lengths must match");
-
-    // compute data ranges
-    let x_min = x.iter().cloned().fold(f64::INFINITY, f64::min);
-    let x_max = x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let y_min = y.iter().cloned().fold(f64::INFINITY, f64::min);
-    let y_max = y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-
-    let (x_lo, x_hi) = if (x_max - x_min).abs() < f64::EPSILON {
-        (x_min - 1.0, x_max + 1.0)
-    } else {
-        (x_min, x_max)
-    };
-    let (y_lo, y_hi) = if (y_max - y_min).abs() < f64::EPSILON {
-        (y_min - 1.0, y_max + 1.0)
-    } else {
-        (y_min, y_max)
-    };
-
-    let size = (600, 600);
-    let ext = out_path
+/// Render `figure` to `path`: SVG for a `.svg` extension, PNG otherwise.
+///
+/// # Errors
+/// [`Error::Plot`] if rendering or writing fails.
+pub fn save(figure: &impl Figure, path: &Path) -> Result<()> {
+    let is_svg = path
         .extension()
-        .and_then(OsStr::to_str)
-        .unwrap_or("")
-        .to_lowercase();
-
-    // SVG
-    if ext == "svg" {
-        let root = SVGBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Scatter Plot", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(x_lo..x_hi, y_lo..y_hi)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        chart
-            .draw_series(
-                x.iter()
-                    .zip(y.iter())
-                    .map(|(&xi, &yi)| Circle::new((xi, yi), 3, RED.filled())),
-            )
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        if with_regression {
-            let n = x.len() as f64;
-            let mean_x = x.iter().sum::<f64>() / n;
-            let mean_y = y.iter().sum::<f64>() / n;
-            let cov_xy = x
-                .iter()
-                .zip(y.iter())
-                .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
-                .sum::<f64>();
-            let var_x = x.iter().map(|&xi| (xi - mean_x).powi(2)).sum::<f64>();
-            let slope = cov_xy / var_x;
-            let intercept = mean_y - slope * mean_x;
-            let line_pts = vec![
-                (x_lo, intercept + slope * x_lo),
-                (x_hi, intercept + slope * x_hi),
-            ];
-            chart
-                .draw_series(LineSeries::new(line_pts, BLUE.stroke_width(2)))
-                .map_err(Box::<dyn std::error::Error>::from)?;
-        }
-
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-        return Ok(());
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+    let plot_err = |e: &dyn std::fmt::Display| Error::Plot(format!("{}: {e}", path.display()));
+    if is_svg {
+        let root = SVGBackend::new(path, figure.size()).into_drawing_area();
+        figure.draw(&root).map_err(|e| plot_err(&e))?;
+        root.present().map_err(|e| plot_err(&e))
+    } else {
+        let root = BitMapBackend::new(path, figure.size()).into_drawing_area();
+        figure.draw(&root).map_err(|e| plot_err(&e))?;
+        root.present().map_err(|e| plot_err(&e))
     }
-
-    // Bitmap
-    {
-        let root = BitMapBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Scatter Plot", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(x_lo..x_hi, y_lo..y_hi)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        chart
-            .draw_series(
-                x.iter()
-                    .zip(y.iter())
-                    .map(|(&xi, &yi)| Circle::new((xi, yi), 3, RED.filled())),
-            )
-            .map_err(Box::<dyn std::error::Error>::from)?;
-
-        if with_regression {
-            let n = x.len() as f64;
-            let mean_x = x.iter().sum::<f64>() / n;
-            let mean_y = y.iter().sum::<f64>() / n;
-            let cov_xy = x
-                .iter()
-                .zip(y.iter())
-                .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
-                .sum::<f64>();
-            let var_x = x.iter().map(|&xi| (xi - mean_x).powi(2)).sum::<f64>();
-            let slope = cov_xy / var_x;
-            let intercept = mean_y - slope * mean_x;
-            let line_pts = vec![
-                (x_lo, intercept + slope * x_lo),
-                (x_hi, intercept + slope * x_hi),
-            ];
-            chart
-                .draw_series(LineSeries::new(line_pts, BLUE.stroke_width(2)))
-                .map_err(Box::<dyn std::error::Error>::from)?;
-        }
-
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-    }
-
-    Ok(())
 }
 
-/// Histogram plot
-pub fn plot_histogram(
-    data: &[f64],
-    bins: usize,
-    min: f64,
-    max: f64,
-    out_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // build counts
-    let mut counts = vec![0; bins];
-    let span = max - min;
-    for &v in data {
-        let idx = if v <= min {
-            0
-        } else if v >= max {
-            bins - 1
-        } else {
-            (((v - min) / span) * bins as f64).floor() as usize
+/// `[min, max]` of the finite values, widened if degenerate; `None` if there
+/// are no finite values.
+fn extent(values: impl IntoIterator<Item = f64>) -> Option<Range<f64>> {
+    let (lo, hi) = values
+        .into_iter()
+        .filter(|v| v.is_finite())
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        });
+    if lo > hi {
+        None
+    } else if hi - lo < f64::EPSILON * lo.abs().max(1.0) {
+        Some((lo - 1.0)..(hi + 1.0))
+    } else {
+        Some(lo..hi)
+    }
+}
+
+/// Upper end of `[0, max]` for non-negative quantities.
+fn zero_based(values: impl IntoIterator<Item = f64>) -> Range<f64> {
+    let top = values
+        .into_iter()
+        .filter(|v| v.is_finite())
+        .fold(0.0, f64::max);
+    0.0..(if top > 0.0 { top * 1.05 } else { 1.0 })
+}
+
+/// An experimental variogram (points) with an optional model curve.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariogramPlot {
+    /// `(lag distance, γ)` points; lags without pairs should be omitted.
+    pub experimental: Vec<(f64, f64)>,
+    /// Optional `(distance, γ)` model curve.
+    pub model: Option<Vec<(f64, f64)>>,
+}
+
+impl Figure for VariogramPlot {
+    fn size(&self) -> (u32, u32) {
+        (800, 600)
+    }
+
+    fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB> {
+        let model = self.model.as_deref().unwrap_or_default();
+        let all = || self.experimental.iter().chain(model);
+        root.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(root)
+            .caption("Variogram", ("sans-serif", 24))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d(
+                zero_based(all().map(|p| p.0)),
+                zero_based(all().map(|p| p.1)),
+            )?;
+        chart
+            .configure_mesh()
+            .x_desc("distance")
+            .y_desc("γ")
+            .draw()?;
+        chart
+            .draw_series(
+                self.experimental
+                    .iter()
+                    .map(|&p| Circle::new(p, 4, RED.filled())),
+            )?
+            .label("experimental")
+            .legend(|(x, y)| Circle::new((x + 10, y), 4, RED.filled()));
+        if !model.is_empty() {
+            chart
+                .draw_series(LineSeries::new(model.iter().copied(), BLUE.stroke_width(2)))?
+                .label("model")
+                .legend(|(x, y)| PathElement::new([(x, y), (x + 20, y)], BLUE.stroke_width(2)));
+        }
+        chart.configure_series_labels().border_style(BLACK).draw()
+    }
+}
+
+/// A scatter plot, optionally with the least-squares line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScatterPlot {
+    /// `(x, y)` points.
+    pub points: Vec<(f64, f64)>,
+    /// Draw the ordinary least-squares regression of y on x.
+    pub regression: bool,
+}
+
+impl ScatterPlot {
+    /// Slope and intercept of the least-squares line, if x has variance.
+    #[must_use]
+    pub fn regression_line(&self) -> Option<(f64, f64)> {
+        let n = to_f64(self.points.len());
+        let mx = self.points.iter().map(|p| p.0).sum::<f64>() / n;
+        let my = self.points.iter().map(|p| p.1).sum::<f64>() / n;
+        let (sxy, sxx) = self.points.iter().fold((0.0, 0.0), |(sxy, sxx), &(x, y)| {
+            ((x - mx).mul_add(y - my, sxy), (x - mx).mul_add(x - mx, sxx))
+        });
+        (sxx > 0.0).then(|| {
+            let slope = sxy / sxx;
+            (slope, slope.mul_add(-mx, my))
+        })
+    }
+}
+
+impl Figure for ScatterPlot {
+    fn size(&self) -> (u32, u32) {
+        (600, 600)
+    }
+
+    fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB> {
+        let xr = extent(self.points.iter().map(|p| p.0)).unwrap_or(0.0..1.0);
+        let yr = extent(self.points.iter().map(|p| p.1)).unwrap_or(0.0..1.0);
+        root.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(root)
+            .caption("Scatter plot", ("sans-serif", 24))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d(xr.clone(), yr)?;
+        chart.configure_mesh().draw()?;
+        chart
+            .draw_series(self.points.iter().map(|&p| Circle::new(p, 3, RED.filled())))?
+            .label("data")
+            .legend(|(x, y)| Circle::new((x + 10, y), 3, RED.filled()));
+        if let Some((slope, intercept)) = self.regression.then(|| self.regression_line()).flatten()
+        {
+            let line = [xr.start, xr.end].map(|x| (x, slope.mul_add(x, intercept)));
+            chart
+                .draw_series(LineSeries::new(line, BLUE.stroke_width(2)))?
+                .label(format!("y = {slope:.3}x + {intercept:.3}"))
+                .legend(|(x, y)| PathElement::new([(x, y), (x + 20, y)], BLUE.stroke_width(2)));
+        }
+        chart.configure_series_labels().border_style(BLACK).draw()
+    }
+}
+
+/// A histogram of values in equal-width classes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistogramPlot {
+    /// Class range; values outside fall in the end classes.
+    pub range: Range<f64>,
+    /// Count in each class.
+    pub counts: Vec<usize>,
+}
+
+impl HistogramPlot {
+    /// Bin `values` into `bins` classes over `range` (or the data's range).
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if `bins` is zero, there are no finite values,
+    /// or the range is not finite and increasing.
+    pub fn new(values: &[f64], bins: usize, range: Option<Range<f64>>) -> Result<Self> {
+        if bins == 0 {
+            return Err(Error::invalid("histogram", "needs at least one bin"));
+        }
+        let range = match range {
+            Some(r) => r,
+            None => extent(values.iter().copied())
+                .ok_or_else(|| Error::invalid("histogram", "no finite values"))?,
         };
-        counts[idx] += 1;
+        if !(range.start.is_finite() && range.end.is_finite() && range.start < range.end) {
+            return Err(Error::invalid(
+                "histogram range",
+                "must be finite and increasing",
+            ));
+        }
+        let width = (range.end - range.start) / to_f64(bins);
+        let mut counts = vec![0; bins];
+        for v in values.iter().filter(|v| v.is_finite()) {
+            let class = floor_index((v - range.start) / width).map_or(0, |c| c.min(bins - 1));
+            if let Some(c) = counts.get_mut(class) {
+                *c += 1;
+            }
+        }
+        Ok(Self { range, counts })
     }
-    let y_max = *counts.iter().max().unwrap_or(&0) as f64;
-
-    let size = (600, 400);
-    let ext = out_path
-        .extension()
-        .and_then(OsStr::to_str)
-        .unwrap_or("")
-        .to_lowercase();
-
-    // SVG
-    if ext == "svg" {
-        let root = SVGBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Histogram", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(min..max, 0.0..y_max)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let bw = (max - min) / bins as f64;
-        chart
-            .draw_series(counts.iter().enumerate().map(|(i, &c)| {
-                let x0 = min + i as f64 * bw;
-                Rectangle::new([(x0, 0.0), (x0 + bw, c as f64)], BLUE.filled())
-            }))
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-        return Ok(());
-    }
-
-    // Bitmap
-    {
-        let root = BitMapBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Histogram", ("sans-serif", 24))
-            .margin(20)
-            .x_label_area_size(40)
-            .y_label_area_size(40)
-            .build_cartesian_2d(min..max, 0.0..y_max)?;
-        chart
-            .configure_mesh()
-            .draw()
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let bw = (max - min) / bins as f64;
-        chart
-            .draw_series(counts.iter().enumerate().map(|(i, &c)| {
-                let x0 = min + i as f64 * bw;
-                Rectangle::new([(x0, 0.0), (x0 + bw, c as f64)], BLUE.filled())
-            }))
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-    }
-
-    Ok(())
 }
 
-/// Pixel map
-pub fn plot_pixelmap<Fc>(
-    data: &[f64],
+impl Figure for HistogramPlot {
+    fn size(&self) -> (u32, u32) {
+        (600, 400)
+    }
+
+    fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB> {
+        let width = (self.range.end - self.range.start) / to_f64(self.counts.len().max(1));
+        root.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(root)
+            .caption("Histogram", ("sans-serif", 24))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d(
+                self.range.clone(),
+                zero_based(self.counts.iter().map(|&c| to_f64(c))),
+            )?;
+        chart.configure_mesh().draw()?;
+        chart.draw_series(self.counts.iter().enumerate().map(|(i, &c)| {
+            let x0 = width.mul_add(to_f64(i), self.range.start);
+            Rectangle::new([(x0, 0.0), (x0 + width, to_f64(c))], BLUE.filled())
+        }))?;
+        Ok(())
+    }
+}
+
+/// A 2-D grid of values drawn as coloured cells, x fastest, with y increasing
+/// upward (GSLIB `pixelplt` orientation).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PixelMap {
+    values: Vec<f64>,
     nx: usize,
-    ny: usize,
-    out_path: &Path,
-    palette: Fc,
-) -> Result<(), Box<dyn std::error::Error>>
-where
-    Fc: Fn(f64) -> RGBColor,
-{
-    assert_eq!(data.len(), nx * ny, "data.len must be nx*ny");
+    range: Range<f64>,
+}
 
-    let size = (800, 800);
-    let ext = out_path
-        .extension()
-        .and_then(OsStr::to_str)
-        .unwrap_or("")
-        .to_lowercase();
-
-    // SVG
-    if ext == "svg" {
-        let root = SVGBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let x_scale = size.0 as f64 / nx as f64;
-        let y_scale = size.1 as f64 / ny as f64;
-        for ix in 0..nx {
-            for iy in 0..ny {
-                let v = data[ix + iy * nx];
-                let c = palette(v);
-                let x0 = (ix as f64 * x_scale) as i32;
-                let y0 = (iy as f64 * y_scale) as i32;
-                let x1 = ((ix + 1) as f64 * x_scale) as i32;
-                let y1 = ((iy + 1) as f64 * y_scale) as i32;
-                root.draw(&Rectangle::new([(x0, y0), (x1, y1)], c.filled()))
-                    .map_err(Box::<dyn std::error::Error>::from)?;
-            }
+impl PixelMap {
+    /// # Errors
+    /// [`Error::InvalidInput`] if `nx` is zero, `values.len()` is not a
+    /// multiple of `nx`, or there are no finite values.
+    pub fn new(values: Vec<f64>, nx: usize) -> Result<Self> {
+        if nx == 0 || values.is_empty() || !values.len().is_multiple_of(nx) {
+            return Err(Error::invalid(
+                "pixel map",
+                "values must fill whole rows of nx > 0 cells",
+            ));
         }
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
-        return Ok(());
+        let range = extent(values.iter().copied())
+            .ok_or_else(|| Error::invalid("pixel map", "no finite values"))?;
+        Ok(Self { values, nx, range })
     }
 
-    // Bitmap
-    {
-        let root = BitMapBackend::new(out_path, size).into_drawing_area();
-        root.fill(&WHITE)
-            .map_err(Box::<dyn std::error::Error>::from)?;
-        let x_scale = size.0 as f64 / nx as f64;
-        let y_scale = size.1 as f64 / ny as f64;
-        for ix in 0..nx {
-            for iy in 0..ny {
-                let v = data[ix + iy * nx];
-                let c = palette(v);
-                let x0 = (ix as f64 * x_scale) as i32;
-                let y0 = (iy as f64 * y_scale) as i32;
-                let x1 = ((ix + 1) as f64 * x_scale) as i32;
-                let y1 = ((iy + 1) as f64 * y_scale) as i32;
-                root.draw(&Rectangle::new([(x0, y0), (x1, y1)], c.filled()))
-                    .map_err(Box::<dyn std::error::Error>::from)?;
-            }
-        }
-        root.present().map_err(Box::<dyn std::error::Error>::from)?;
+    /// Blue → green → red ramp for `v` within the map's range.
+    fn colour(&self, v: f64) -> RGBColor {
+        let t = ((v - self.range.start) / (self.range.end - self.range.start)).clamp(0.0, 1.0);
+        let channel =
+            |x: f64| u8::try_from(floor_index(x * 255.0).unwrap_or(0).min(255)).unwrap_or(u8::MAX);
+        RGBColor(
+            channel(t),
+            channel(1.0 - 2.0_f64.mul_add(t, -1.0).abs()),
+            channel(1.0 - t),
+        )
+    }
+}
+
+impl Figure for PixelMap {
+    fn size(&self) -> (u32, u32) {
+        (800, 800)
     }
 
-    Ok(())
+    fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB> {
+        let ny = self.values.len().checked_div(self.nx).unwrap_or(0);
+        root.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(root)
+            .margin(20)
+            .x_label_area_size(30)
+            .y_label_area_size(30)
+            .build_cartesian_2d(0.0..to_f64(self.nx), 0.0..to_f64(ny))?;
+        chart.configure_mesh().disable_mesh().draw()?;
+        chart.draw_series(self.values.chunks_exact(self.nx).enumerate().flat_map(
+            |(iy, row)| {
+                row.iter().enumerate().map(move |(ix, &v)| {
+                    let (x, y) = (to_f64(ix), to_f64(iy));
+                    Rectangle::new([(x, y), (x + 1.0, y + 1.0)], self.colour(v).filled())
+                })
+            },
+        ))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_abs_diff_eq;
+
+    #[test]
+    fn histogram_counts_and_edges() {
+        let h = HistogramPlot::new(&[0.0, 0.4, 0.6, 1.0, 9.0, -3.0], 2, Some(0.0..1.0)).unwrap();
+        assert_eq!(h.counts, vec![3, 3]);
+        assert!(HistogramPlot::new(&[1.0], 0, None).is_err(), "zero bins");
+        assert!(
+            HistogramPlot::new(&[f64::NAN], 3, None).is_err(),
+            "no finite values"
+        );
+    }
+
+    #[test]
+    fn regression_line_fits_exact_line() {
+        let s = ScatterPlot {
+            points: vec![(0.0, 1.0), (1.0, 3.0), (2.0, 5.0)],
+            regression: true,
+        };
+        let (m, b) = s.regression_line().unwrap();
+        assert_abs_diff_eq!(m, 2.0, epsilon = 1e-12);
+        assert_abs_diff_eq!(b, 1.0, epsilon = 1e-12);
+        let vertical = ScatterPlot {
+            points: vec![(1.0, 0.0), (1.0, 2.0)],
+            regression: true,
+        };
+        assert_eq!(vertical.regression_line(), None);
+    }
+
+    #[test]
+    fn extent_widens_degenerate_ranges() {
+        assert_eq!(extent([2.0, 2.0]), Some(1.0..3.0));
+        assert_eq!(extent([f64::NAN]), None);
+    }
+
+    #[test]
+    fn renders_png_and_svg() {
+        let dir = tempfile::tempdir().unwrap();
+        let fig = VariogramPlot {
+            experimental: vec![(1.0, 0.5), (2.0, 0.9)],
+            model: Some(vec![(0.0, 0.0), (2.0, 1.0)]),
+        };
+        for name in ["v.png", "v.svg"] {
+            let path = dir.path().join(name);
+            save(&fig, &path).unwrap();
+            assert!(
+                std::fs::metadata(&path).unwrap().len() > 0,
+                "{name} is empty"
+            );
+        }
+        let map = PixelMap::new(vec![0.0, 1.0, 2.0, 3.0], 2).unwrap();
+        save(&map, &dir.path().join("m.png")).unwrap();
+    }
 }
