@@ -27,11 +27,13 @@ and fast.
 
 ## Decisions so far
 
-None yet.
+- **Order** (D-024): candidates are returned by ascending squared
+  anisotropic distance, then ascending input row. GSLIB's tie order is an
+  opt-in for exact-stream parity, deferred to that spec.
 
 ## Open questions (in dependency order)
 
-1. Order of equidistant data (decides what "the first `ndmax`" means).
+1. ~~Order of equidistant data~~ (D-024).
 2. Must the super-block search equal brute force exactly, or reproduce
    GSLIB's `picksup` (F-012 hypothesis)?
 3. Is `sgsim`'s node search (covariance-ordered spiral, `nodmax`, two-part

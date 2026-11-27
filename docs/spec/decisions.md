@@ -847,3 +847,37 @@ From `vendor/gslib-2.0/src/`:
 - **Debug output as an oracle:** `kt3d` with `idbg ≥ 2` writes, per
   estimate, the data used, in order, with their weights (`5f12.3`, lines
   993–1006).
+
+## D-024: Order of equidistant data in a search
+- Status: decided
+- Topic: search.md
+- Question: In what order does a search return data at exactly the same
+  anisotropic distance from the target, which decides which survive the
+  `ndmax` cut?
+- Options:
+  1. deterministic (distance, then input row), with GSLIB's order as an
+     opt-in;
+  2. deterministic only;
+  3. reproduce GSLIB's order (super-block data order plus `sortem`) by
+     default.
+- Decision: **option 1.** The default order is ascending squared
+  anisotropic distance, then ascending 0-based input row (a total order).
+  GSLIB's order is an opt-in, specified and built only when the
+  exact-stream parity spec (PLAN C5) needs it.
+- Rationale:
+  - GSLIB's tie order is an accident of its super-block grid and an
+    unstable quicksort (F-012), not a property of the data.
+  - A total order makes results reproducible and independent of the search
+    accelerator and thread count (`AGENTS.md`, precedence 1).
+  - Keeping GSLIB's order available preserves the route to exact stream
+    parity, an opt-in per `AGENTS.md`.
+- Consequences:
+  - Every neighbourhood implementation (brute force, super-block, k-d tree)
+    must return the same sequence for the same inputs. This is a property
+    test.
+  - A parity fixture where a tie straddles the `ndmax` (or octant) cut is
+    an expected deviation. It is checked as "GSLIB's selection is a valid
+    choice among the tied data", not skipped. Fixtures avoid such ties
+    unless they test exactly this.
+  - Ties elsewhere only change the order of the kriging system, which is
+    within rounding (D-010).
