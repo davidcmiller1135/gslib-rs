@@ -881,3 +881,34 @@ From `vendor/gslib-2.0/src/`:
     unless they test exactly this.
   - Ties elsewhere only change the order of the kriging system, which is
     within rounding (D-010).
+
+## D-025: Super-block search equals brute force
+- Status: decided (the GSLIB defect it guards against is still blocked on
+  `TODO(parity-verify)`)
+- Topic: search.md
+- Question: Must the super-block search return exactly what brute force
+  returns, or reproduce GSLIB's `picksup` block selection?
+- Options:
+  1. exact, then verify GSLIB's miss with a fixture and document it;
+  2. exact, plus `picksup` as a legacy opt-in;
+  3. reproduce `picksup` by default.
+- Decision: **option 1.** Every accelerator returns exactly the
+  brute-force sequence (D-024) for the same inputs. There is no legacy
+  policy for `picksup`.
+- Rationale:
+  - An accelerator is a speed shortcut and must not change results
+    (`AGENTS.md`, precedence 1). Option 3 would make results depend on the
+    super-block grid, against D-024.
+  - If GSLIB skips data inside its own search ellipsoid (F-012
+    hypothesis), that is a defect to fix and document, not to reproduce
+    (`AGENTS.md`, *Do not treat legacy agreement as proof of correctness*).
+- Consequences:
+  - The super-block's block selection uses a conservative bound: the exact
+    minimum anisotropic distance between boxes, or a lower bound on it. It
+    can never exclude a block that holds an in-range datum.
+  - Property tests compare super-block against brute force on random data,
+    metrics and targets, including rotated, strongly anisotropic metrics
+    and targets outside the data's extent.
+  - A `kt3d` fixture is designed to trigger the probe's geometry. If GSLIB
+    misses the datum, a ROADMAP §2 row records the divergence; if not, the
+    hypothesis is withdrawn in F-012.

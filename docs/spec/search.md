@@ -30,12 +30,16 @@ and fast.
 - **Order** (D-024): candidates are returned by ascending squared
   anisotropic distance, then ascending input row. GSLIB's tie order is an
   opt-in for exact-stream parity, deferred to that spec.
+- **Accelerators are exact** (D-025): super-block (and any later
+  accelerator) returns exactly the brute-force sequence. Its block
+  selection may never exclude a block holding an in-range datum. GSLIB's
+  possible miss (F-012) is verified with a fixture and, if confirmed,
+  documented as a fixed defect.
 
 ## Open questions (in dependency order)
 
 1. ~~Order of equidistant data~~ (D-024).
-2. Must the super-block search equal brute force exactly, or reproduce
-   GSLIB's `picksup` (F-012 hypothesis)?
+2. ~~Super-block vs brute force~~ (D-025).
 3. Is `sgsim`'s node search (covariance-ordered spiral, `nodmax`, two-part
    search) part of this spec?
 4. Is `kt3d`'s debug output used as a direct oracle for the selected data?
