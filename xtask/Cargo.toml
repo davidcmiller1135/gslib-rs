@@ -15,6 +15,7 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+gslib_rs = { path = "../gslib_rs", version = "0.1.0", default-features = false }
 clap = { version = "4.6", features = ["derive"] }
 oracle-case = { path = "../oracle-case", version = "0.1.0" }
 rand = { version = "0.10", default-features = false, features = ["std"] }
@@ -23,5 +24,4 @@ rand_distr = { version = "0.6", default-features = false, features = ["std"] }
 toml = "1.2"
 
 [dev-dependencies]
-gslib_rs = { path = "../gslib_rs", version = "0.1.0", default-features = false }
 tempfile = "3.27"

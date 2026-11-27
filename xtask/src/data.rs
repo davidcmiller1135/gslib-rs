@@ -26,6 +26,18 @@ pub(crate) struct Suite {
     pub(crate) note: &'static str,
     /// Produces the rows `[x, y, z, v, (w)]`.
     build: fn(&mut ChaCha8Rng) -> Rows,
+    /// How the rows are written.
+    format: Format,
+}
+
+/// File layout of a suite.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Format {
+    /// GSLIB (Geo-EAS): title, variable count, names, rows. Columns 1-3 are
+    /// coordinates (4 decimals), the rest values (6 decimals).
+    Gslib,
+    /// Bare whitespace-separated rows, 6 decimals: e.g. a `backtr` table.
+    Columns,
 }
 
 /// Column names and rows of a data set.
@@ -45,21 +57,23 @@ impl Suite {
         let data = self.rows();
         let mut out = String::new();
         // Writing to a String cannot fail.
-        let _ = writeln!(
-            out,
-            "gslib-rs synthetic suite '{}' (seed {})",
-            self.name, self.seed
-        );
-        let _ = writeln!(out, "{}", data.names.len());
-        for name in data.names {
-            let _ = writeln!(out, "{name}");
+        if self.format == Format::Gslib {
+            let _ = writeln!(
+                out,
+                "gslib-rs synthetic suite '{}' (seed {})",
+                self.name, self.seed
+            );
+            let _ = writeln!(out, "{}", data.names.len());
+            for name in data.names {
+                let _ = writeln!(out, "{name}");
+            }
         }
         for row in &data.rows {
             let fields: Vec<String> = row
                 .iter()
                 .enumerate()
                 .map(|(j, v)| {
-                    if j < 3 {
+                    if j < 3 && self.format == Format::Gslib {
                         format!("{v:.4}")
                     } else {
                         format!("{v:.6}")
@@ -217,67 +231,134 @@ fn with_sentinels(rng: &mut ChaCha8Rng) -> Rows {
     Rows { names: XYZV, rows }
 }
 
+/// Number of rows in [`backtr_table`].
+const TABLE_ROWS: u32 = 25;
+
+/// The `k`-th of `n` midpoint normal scores, rounded as written.
+fn table_score(k: u32, n: u32) -> f64 {
+    let p = (f64::from(k) + 0.5) / f64::from(n);
+    rounded(
+        gslib_rs::transform::standard_normal_quantile(p).unwrap_or(0.0),
+        6,
+    )
+}
+
+fn backtr_table(rng: &mut ChaCha8Rng) -> Rows {
+    // Sorted lognormal values against midpoint normal scores, as nscore
+    // would produce for equally weighted data: strictly increasing pairs.
+    let mut values: Vec<f64> = (0..TABLE_ROWS)
+        .map(|_| rounded(normal(rng).exp(), 6))
+        .collect();
+    values.sort_by(f64::total_cmp);
+    let rows = values
+        .into_iter()
+        .zip(0..)
+        .map(|(v, k)| vec![v, table_score(k, TABLE_ROWS)])
+        .collect();
+    Rows {
+        names: &["value", "score"],
+        rows,
+    }
+}
+
+fn normal_scores(_: &mut ChaCha8Rng) -> Rows {
+    // Scores from -4.5 to 4.5 in steps of 0.25 (both tails and the
+    // interior), then every table node exactly.
+    let grid = (0..37_u32).map(|k| 0.25_f64.mul_add(f64::from(k), -4.5));
+    let nodes = (0..TABLE_ROWS).map(|k| table_score(k, TABLE_ROWS));
+    let rows = grid
+        .chain(nodes)
+        .zip(0_u32..)
+        .map(|(score, i)| vec![f64::from(i), 0.0, 0.0, score])
+        .collect();
+    Rows { names: XYZV, rows }
+}
+
 /// Every suite, in the order the README lists them.
-pub(crate) const SUITES: [Suite; 10] = [
+pub(crate) const SUITES: [Suite; 12] = [
     Suite {
         name: "smooth",
         seed: 1,
         note: "60 scattered 2-D points with a smooth trend plus noise and no tied values: general-purpose input for nscore, gamv and kt3d.",
         build: smooth,
+        format: Format::Gslib,
     },
     Suite {
         name: "ties",
         seed: 2,
         note: "40 points whose values take only 4 levels, so most are tied: nscore/backtr tie handling (GSLIB's random despiking, F-005).",
         build: ties,
+        format: Format::Gslib,
     },
     Suite {
         name: "skewed",
         seed: 3,
         note: "80 points with lognormal values (strong positive skew, long upper tail): normal-score transform and back-transform tails.",
         build: skewed,
+        format: Format::Gslib,
     },
     Suite {
         name: "weighted",
         seed: 4,
         note: "50 points with a positive weight column W: weighted nscore and declustering weights.",
         build: weighted,
+        format: Format::Gslib,
     },
     Suite {
         name: "duplicates",
         seed: 5,
         note: "30 points plus 5 repeats at identical locations with different values: zero-distance pairs in gamv and singular systems in kt3d.",
         build: duplicates,
+        format: Format::Gslib,
     },
     Suite {
         name: "grid_3d",
         seed: 6,
         note: "A 6 x 5 x 4 regular 3-D grid (x fastest), varying faster vertically: directional and vertical gamv lags.",
         build: grid_3d,
+        format: Format::Gslib,
     },
     Suite {
         name: "clustered",
         seed: 7,
         note: "40 high-valued points in a dense cluster plus 20 sparse low-valued points: preferential sampling for declus.",
         build: clustered,
+        format: Format::Gslib,
     },
     Suite {
         name: "constant",
         seed: 8,
         note: "20 points with one identical value (zero variance): degenerate input for every program.",
         build: constant,
+        format: Format::Gslib,
     },
     Suite {
         name: "tiny",
         seed: 9,
         note: "Two points 5 apart: the smallest non-trivial input.",
         build: tiny,
+        format: Format::Gslib,
     },
     Suite {
         name: "with_sentinels",
         seed: 10,
         note: "40 points where every fifth value is -999: trimming limits and missing values (semantics pending the missing-values spec).",
         build: with_sentinels,
+        format: Format::Gslib,
+    },
+    Suite {
+        name: "backtr_table",
+        seed: 11,
+        note: "A 25-row backtr transformation table (no header): sorted lognormal values against exact midpoint normal scores.",
+        build: backtr_table,
+        format: Format::Columns,
+    },
+    Suite {
+        name: "normal_scores",
+        seed: 12,
+        note: "Normal scores from -4.5 to 4.5 in steps of 0.25 plus every backtr_table node: back-transform tails and interior.",
+        build: normal_scores,
+        format: Format::Gslib,
     },
 ];
 
@@ -316,8 +397,32 @@ mod tests {
     }
 
     #[test]
+    fn table_is_strictly_increasing_and_scores_cover_both_tails() {
+        let rows = suite("backtr_table").rows().rows;
+        assert!(
+            rows.windows(2)
+                .all(|w| w[0][0] < w[1][0] && w[0][1] < w[1][1]),
+            "strictly increasing"
+        );
+        assert_eq!(
+            suite("backtr_table").text().lines().count(),
+            25,
+            "no header"
+        );
+        let scores = column("normal_scores", 3);
+        assert!(
+            scores.iter().any(|&s| s < rows[0][1]) && scores.iter().any(|&s| s > rows[24][1]),
+            "both tails"
+        );
+        assert!(
+            rows.iter().all(|r| scores.contains(&r[1])),
+            "every node present"
+        );
+    }
+
+    #[test]
     fn written_text_parses_back_to_the_same_rows() {
-        for s in &SUITES {
+        for s in SUITES.iter().filter(|s| s.format == Format::Gslib) {
             let parsed = gslib_rs::io::parse_gslib(&s.text()).unwrap();
             let rows = s.rows();
             assert_eq!(parsed.nrows(), rows.rows.len(), "{}", s.name);

@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use oracle_case::{parse_case, sha256_hex, vmodel};
+use oracle_case::{backtr, nscore, parse_case, sha256_hex, vmodel};
 
 use super::{AppResult, BuildOutcome, FLAGS, rewrite};
 
@@ -20,12 +20,36 @@ struct Run {
     outputs: Vec<&'static str>,
 }
 
-fn prepare(program: &str, parameters: &toml::Table) -> AppResult<Run> {
+/// Fail unless every file the parameters name is a declared case input.
+fn require_inputs(files: &[&str], inputs: &[String]) -> AppResult {
+    if let Some(f) = files.iter().find(|f| !inputs.iter().any(|i| i == *f)) {
+        return Err(format!("{f} is used by the parameters but not listed in inputs").into());
+    }
+    Ok(())
+}
+
+fn prepare(program: &str, parameters: &toml::Table, inputs: &[String]) -> AppResult<Run> {
     match program {
         "vmodel" => Ok(Run {
             par: vmodel::Params::from_table(parameters)?.to_par(),
             outputs: vec![vmodel::OUTPUT_FILE],
         }),
+        "nscore" => {
+            let p = nscore::Params::from_table(parameters)?;
+            require_inputs(&[&p.data], inputs)?;
+            Ok(Run {
+                par: p.to_par(),
+                outputs: vec![nscore::OUTPUT_FILE, nscore::TABLE_FILE],
+            })
+        }
+        "backtr" => {
+            let p = backtr::Params::from_table(parameters)?;
+            require_inputs(&[&p.data, &p.table], inputs)?;
+            Ok(Run {
+                par: p.to_par(),
+                outputs: vec![backtr::OUTPUT_FILE],
+            })
+        }
         other => Err(format!("no fixture generator for {other} yet").into()),
     }
 }
@@ -140,8 +164,8 @@ fn generate_case(
         )
         .into());
     }
-    let run =
-        prepare(program, &case.parameters).map_err(|e| format!("{}: {e}", case_path.display()))?;
+    let run = prepare(program, &case.parameters, &case.inputs)
+        .map_err(|e| format!("{}: {e}", case_path.display()))?;
 
     let name = case_dir
         .file_name()
@@ -282,8 +306,17 @@ mod tests {
     #[test]
     fn only_known_programs_have_generators() {
         assert!(
-            prepare("kt3d", &toml::Table::new()).is_err(),
+            prepare("kt3d", &toml::Table::new(), &[]).is_err(),
             "kt3d has no generator yet"
+        );
+        let t: toml::Table = "data = \"a.dat\"\nvariable_column = 4".parse().unwrap();
+        assert!(
+            prepare("nscore", &t, &[]).is_err(),
+            "data must be a declared input"
+        );
+        assert!(
+            prepare("nscore", &t, &["a.dat".to_owned()]).is_ok(),
+            "declared input"
         );
     }
 }

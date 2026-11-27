@@ -18,3 +18,5 @@ copies it into the case directory.
 | `constant.dat` | 8 | `951bd8fcc59f0bf2b27c3e02befca47bc87d675c6637625ae3d45bcaaae00828` | 20 points with one identical value (zero variance): degenerate input for every program. |
 | `tiny.dat` | 9 | `743cf069ae8bad277df4b1e8b54a54bc11b8b70cc7807027e6e849bea3a7ad6e` | Two points 5 apart: the smallest non-trivial input. |
 | `with_sentinels.dat` | 10 | `4b0b5ca2967d7ba30f23a303d96bf04b1c81944039c70f05ce633c11104b7b58` | 40 points where every fifth value is -999: trimming limits and missing values (semantics pending the missing-values spec). |
+| `backtr_table.dat` | 11 | `fb6c9522b32b65b8bf09447a1f69a0adb531da9cd6ce905d9eb6543cbc18e87f` | A 25-row backtr transformation table (no header): sorted lognormal values against exact midpoint normal scores. |
+| `normal_scores.dat` | 12 | `8859bf0e3d9d307f1c2e83bbd8a3bc3814c5a6d5ed79dcbc1e2f48505e6c17a2` | Normal scores from -4.5 to 4.5 in steps of 0.25 plus every backtr_table node: back-transform tails and interior. |

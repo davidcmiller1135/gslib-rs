@@ -20,6 +20,35 @@ fn normal_cdf(y: f64) -> f64 {
     0.5 * libm::erfc(-y / SQRT_2)
 }
 
+/// The standard normal quantile Φ⁻¹(p), to about 1e-16.
+///
+/// GSLIB's `gauinv` is a rational approximation accurate to about 1.5e-8
+/// (F-007 in `docs/spec/decisions.md`); this is the exact function it
+/// approximates.
+///
+/// # Errors
+/// [`Error::InvalidInput`] unless `0 < p < 1`.
+pub fn standard_normal_quantile(p: f64) -> Result<f64> {
+    if p > 0.0 && p < 1.0 {
+        Ok(normal_quantile(p))
+    } else {
+        Err(Error::invalid(
+            "probability",
+            format!("must be strictly between 0 and 1, got {p}"),
+        ))
+    }
+}
+
+/// The standard normal CDF Φ(y), to within an ulp or so.
+///
+/// GSLIB's `gcum` is a polynomial approximation accurate to about 7.5e-8
+/// absolute (F-007); this is the exact function it approximates. NaN maps to
+/// NaN.
+#[must_use]
+pub fn standard_normal_cdf(y: f64) -> f64 {
+    normal_cdf(y)
+}
+
 /// One row of a transformation table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Entry {
@@ -276,6 +305,15 @@ mod tests {
         );
         assert_abs_diff_eq!(normal_cdf(-1.281_551_565_544_600_4), 0.1, epsilon = 1e-16);
         assert_abs_diff_eq!(normal_cdf(normal_quantile(0.1)), 0.1, epsilon = 1e-16);
+    }
+
+    #[test]
+    fn public_quantile_rejects_out_of_range() {
+        assert!(standard_normal_quantile(0.0).is_err(), "p = 0");
+        assert!(standard_normal_quantile(1.0).is_err(), "p = 1");
+        assert!(standard_normal_quantile(f64::NAN).is_err(), "NaN");
+        assert_abs_diff_eq!(standard_normal_quantile(0.5).unwrap(), 0.0, epsilon = EPS);
+        assert_abs_diff_eq!(standard_normal_cdf(0.0), 0.5, epsilon = EPS);
     }
 
     #[test]
