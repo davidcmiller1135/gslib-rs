@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use oracle_case::{backtr, nscore, parse_case, sha256_hex, vmodel};
+use oracle_case::{backtr, gamv, nscore, parse_case, sha256_hex, vmodel};
 
 use super::{AppResult, BuildOutcome, FLAGS, rewrite};
 
@@ -48,6 +48,14 @@ fn prepare(program: &str, parameters: &toml::Table, inputs: &[String]) -> AppRes
             Ok(Run {
                 par: p.to_par(),
                 outputs: vec![backtr::OUTPUT_FILE],
+            })
+        }
+        "gamv" => {
+            let p = gamv::Params::from_table(parameters)?;
+            require_inputs(&[&p.data], inputs)?;
+            Ok(Run {
+                par: p.to_par(),
+                outputs: vec![gamv::OUTPUT_FILE],
             })
         }
         other => Err(format!("no fixture generator for {other} yet").into()),

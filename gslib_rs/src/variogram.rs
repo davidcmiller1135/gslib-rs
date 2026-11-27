@@ -1,9 +1,34 @@
 //! Experimental (empirical) semivariograms.
+//!
+//! Two ways to group pairs by separation, both behind [`LagScheme`]:
+//! - [`LagClasses`]: equal-width, non-overlapping classes over `[0, max]`;
+//! - [`CentredLags`]: GSLIB `gamv`'s classes, centred on multiples of a lag
+//!   spacing with a tolerance (they may overlap), plus a zero-distance class.
+
+use std::ops::Range;
 
 use crate::error::{Error, Result};
 use crate::geometry::Point3;
 use crate::num::{floor_index, to_f64};
 use crate::sample::Sample;
+
+/// A way of assigning pair separations to lag classes.
+pub trait LagScheme {
+    /// Number of classes.
+    fn len(&self) -> usize;
+
+    /// Whether there are no classes (never true for a validated scheme).
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The nominal distance of a class.
+    fn center(&self, class: usize) -> f64;
+
+    /// The classes a separation `h` belongs to: a possibly empty range,
+    /// since classes may overlap.
+    fn classes(&self, h: f64) -> Range<usize>;
+}
 
 /// Equal-width distance classes covering `[0, max_distance]`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,25 +66,116 @@ impl LagClasses {
     pub const fn count(&self) -> usize {
         self.count
     }
+}
 
-    /// Which class a separation distance falls in; `None` beyond the maximum.
-    fn classify(&self, h: f64) -> Option<usize> {
-        if h > self.max_distance {
-            return None;
-        }
-        // h == max_distance belongs to the last class.
-        floor_index(h / self.width).map(|i| i.min(self.count - 1))
+impl LagScheme for LagClasses {
+    fn len(&self) -> usize {
+        self.count
     }
 
     fn center(&self, class: usize) -> f64 {
         self.width * (to_f64(class) + 0.5)
+    }
+
+    fn classes(&self, h: f64) -> Range<usize> {
+        if h > self.max_distance {
+            return 0..0;
+        }
+        // h == max_distance belongs to the last class.
+        floor_index(h / self.width).map_or(0..0, |i| {
+            let c = i.min(self.count - 1);
+            c..c + 1
+        })
+    }
+}
+
+/// GSLIB `gamv`'s lag classes (`vendor/gslib-2.0/src/GAMV/GAMV.FOR`, F-008).
+///
+/// Class 0 holds coincident pairs (separation ≤ 1e-20, GSLIB's `EPSLON`).
+/// Class `k + 1`, for `k = 0..=count`, holds separations within `tolerance`
+/// of `k · spacing`, inclusive at both ends, so classes overlap when
+/// `tolerance > spacing / 2` and a pair then counts in several. Pairs farther
+/// apart than `(count + 0.5) · spacing` are ignored.
+///
+/// Unlike GSLIB, a datum is never paired with itself: GSLIB's class 0 also
+/// counts every datum against itself, diluting γ there towards zero
+/// (ROADMAP §2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CentredLags {
+    count: usize,
+    spacing: f64,
+    tolerance: f64,
+}
+
+/// GSLIB `gamv`'s `EPSLON`: separations up to this are "zero".
+const ZERO_SEPARATION: f64 = 1e-20;
+
+impl CentredLags {
+    /// `count` lags of `spacing` (GSLIB `nlag`, `xlag`) with half-width
+    /// `tolerance` (`xltol`).
+    ///
+    /// GSLIB replaces a non-positive tolerance with `spacing / 2`; here it is
+    /// an error (explicit failure, `AGENTS.md`).
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if `count` is zero, or `spacing` or
+    /// `tolerance` is not finite and positive.
+    pub fn new(count: usize, spacing: f64, tolerance: f64) -> Result<Self> {
+        if count == 0 {
+            return Err(Error::invalid("lag count", "must be at least 1"));
+        }
+        for (what, v) in [("lag spacing", spacing), ("lag tolerance", tolerance)] {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(Error::invalid(
+                    what,
+                    format!("must be finite and positive, got {v}"),
+                ));
+            }
+        }
+        Ok(Self {
+            count,
+            spacing,
+            tolerance,
+        })
+    }
+}
+
+impl LagScheme for CentredLags {
+    fn len(&self) -> usize {
+        self.count + 2
+    }
+
+    fn center(&self, class: usize) -> f64 {
+        class
+            .checked_sub(1)
+            .map_or(0.0, |k| self.spacing * to_f64(k))
+    }
+
+    fn classes(&self, h: f64) -> Range<usize> {
+        let limit = (to_f64(self.count) + 0.5) * self.spacing;
+        if h.is_nan() || h > limit {
+            return 0..0;
+        }
+        if h <= ZERO_SEPARATION {
+            return 0..1;
+        }
+        let within = |k: usize| {
+            let c = self.spacing * to_f64(k);
+            h >= c - self.tolerance && h <= c + self.tolerance
+        };
+        let first = (0..=self.count).find(|&k| within(k));
+        let last = (0..=self.count).rev().find(|&k| within(k));
+        match (first, last) {
+            (Some(a), Some(b)) => a + 1..b + 2,
+            _ => 0..0,
+        }
     }
 }
 
 /// One lag of an experimental variogram.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Lag {
-    /// Midpoint of the distance class.
+    /// Nominal distance of the class.
     pub center: f64,
     /// Mean separation of the pairs in the class (`None` if there are none).
     pub mean_distance: Option<f64>,
@@ -67,35 +183,47 @@ pub struct Lag {
     pub pairs: usize,
     /// Semivariance γ, or `None` if the class has no pairs.
     pub gamma: Option<f64>,
+    /// Mean of the values in the class's pairs (both ends of every pair);
+    /// GSLIB's head and tail means for an omnidirectional variogram.
+    pub pair_mean: Option<f64>,
 }
 
 /// Omnidirectional experimental semivariogram of `samples`.
 #[must_use]
-pub fn experimental_variogram(samples: &[Sample], lags: &LagClasses) -> Vec<Lag> {
+pub fn experimental_variogram<L: LagScheme + ?Sized>(samples: &[Sample], lags: &L) -> Vec<Lag> {
     let points: Vec<Point3> = samples.iter().map(Sample::location).collect();
     let values: Vec<f64> = samples.iter().map(Sample::value).collect();
     semivariogram(&points, &values, lags)
 }
 
 /// Experimental semivariogram of `values` at `points` (zipped; any excess in
-/// the longer slice is ignored).
-pub(crate) fn semivariogram(points: &[Point3], values: &[f64], lags: &LagClasses) -> Vec<Lag> {
+/// the longer slice is ignored). Each unordered pair of distinct data counts
+/// once in every class its separation belongs to.
+pub(crate) fn semivariogram<L: LagScheme + ?Sized>(
+    points: &[Point3],
+    values: &[f64],
+    lags: &L,
+) -> Vec<Lag> {
     #[derive(Clone, Copy, Default)]
     struct Acc {
         gamma: f64,
         distance: f64,
+        sum: f64,
         pairs: usize,
     }
     let data: Vec<(Point3, f64)> = points.iter().copied().zip(values.iter().copied()).collect();
-    let mut acc = vec![Acc::default(); lags.count];
+    let mut acc = vec![Acc::default(); lags.len()];
     for (i, &(p, v)) in data.iter().enumerate() {
         for &(q, w) in data.iter().skip(i + 1) {
             let h = p.distance(q);
-            if let Some(slot) = lags.classify(h).and_then(|c| acc.get_mut(c)) {
-                let d = v - w;
-                slot.gamma = (0.5 * d).mul_add(d, slot.gamma);
-                slot.distance += h;
-                slot.pairs += 1;
+            let d = v - w;
+            for class in lags.classes(h) {
+                if let Some(a) = acc.get_mut(class) {
+                    a.gamma = (0.5 * d).mul_add(d, a.gamma);
+                    a.distance += h;
+                    a.sum += v + w;
+                    a.pairs += 1;
+                }
             }
         }
     }
@@ -108,6 +236,7 @@ pub(crate) fn semivariogram(points: &[Point3], values: &[f64], lags: &LagClasses
                 mean_distance: n.map(|n| a.distance / n),
                 pairs: a.pairs,
                 gamma: n.map(|n| a.gamma / n),
+                pair_mean: n.map(|n| a.sum / (2.0 * n)),
             }
         })
         .collect()
@@ -174,5 +303,63 @@ mod tests {
         assert!(LagClasses::new(1.0, 0).is_err(), "zero lags");
         assert!(LagClasses::new(0.0, 3).is_err(), "zero distance");
         assert!(LagClasses::new(f64::NAN, 3).is_err(), "NaN distance");
+    }
+
+    fn centred(count: usize, spacing: f64, tolerance: f64) -> CentredLags {
+        CentredLags::new(count, spacing, tolerance).unwrap()
+    }
+
+    #[test]
+    fn centred_lags_follow_gamv() {
+        // nlag = 3, xlag = 10, xltol = 5: classes 0 (zero), then centres 0,
+        // 10, 20, 30; GAMV.FOR's bounds are inclusive at both ends.
+        let lags = centred(3, 10.0, 5.0);
+        assert_eq!(lags.len(), 5);
+        assert_eq!(lags.classes(0.0), 0..1, "coincident pairs");
+        assert_eq!(lags.classes(3.0), 1..2, "centre 0");
+        assert_eq!(lags.classes(5.0), 1..3, "on a shared bound: both classes");
+        assert_eq!(lags.classes(12.0), 2..3);
+        assert_eq!(lags.classes(35.0), 4..5, "up to (nlag + 0.5) * xlag");
+        assert_eq!(lags.classes(35.5), 0..0, "beyond the limit");
+        assert_eq!(lags.classes(f64::NAN), 0..0, "NaN is never classified");
+        assert_eq!(
+            (0..5).map(|c| lags.center(c)).collect::<Vec<_>>(),
+            vec![0.0, 0.0, 10.0, 20.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn centred_lags_overlap_with_wide_tolerance() {
+        // xltol > xlag / 2: 10 lies within 8 of centre 10 only; 14 lies
+        // within 8 of both 10 and 20.
+        let lags = centred(4, 10.0, 8.0);
+        assert_eq!(lags.classes(10.0), 2..3);
+        assert_eq!(lags.classes(14.0), 2..4, "counted in two classes");
+    }
+
+    #[test]
+    fn centred_variogram_counts_each_distinct_pair_once_per_class() {
+        let data = [s(0.0, 1.0), s(0.0, 3.0), s(10.0, 2.0), s(14.0, 6.0)];
+        let lags = experimental_variogram(&data, &centred(2, 10.0, 8.0));
+        // Zero class: one coincident pair (1, 3), not the four self-pairs.
+        assert_eq!(lags[0].pairs, 1);
+        assert_abs_diff_eq!(lags[0].gamma.unwrap(), 2.0);
+        assert_abs_diff_eq!(lags[0].pair_mean.unwrap(), 2.0);
+        // Separation 4 (10-14) is within 8 of centre 0 and of 10.
+        assert_eq!(lags[1].pairs, 1);
+        // Class 2 is centred on 10 with tolerance 8, i.e. [2, 18].
+        assert_eq!(lags[2].pairs, 5, "pairs at 10, 10, 14, 14 and 4");
+        // Class 3 is centred on 20, i.e. [12, 28].
+        assert_eq!(lags[3].pairs, 2, "pairs at 14 and 14");
+    }
+
+    #[test]
+    fn centred_lags_reject_invalid() {
+        assert!(CentredLags::new(0, 1.0, 0.5).is_err(), "zero lags");
+        assert!(CentredLags::new(3, 0.0, 0.5).is_err(), "zero spacing");
+        assert!(
+            CentredLags::new(3, 1.0, 0.0).is_err(),
+            "GSLIB's default tolerance must be explicit"
+        );
     }
 }

@@ -7,6 +7,7 @@
 //! comparison rules (R7, D-010).
 
 pub mod compare;
+pub mod gamv;
 pub mod gslib_math;
 pub mod vmodel;
 
