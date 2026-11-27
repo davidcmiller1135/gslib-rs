@@ -19,7 +19,7 @@ use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
-use gslib_rs::search::Search;
+use gslib_rs::search::{DataSearch, SearchEllipsoid};
 use gslib_rs::simulation::{sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::{LagClasses, experimental_variogram};
@@ -129,8 +129,14 @@ struct SearchArgs {
 }
 
 impl SearchArgs {
-    fn search(self) -> AppResult<Search> {
-        Ok(Search::new(self.max_samples, self.radius)?)
+    /// An isotropic search keeping the nearest `max_samples` (no minimum
+    /// yet; anisotropy, octants and `ndmin` flags are to come).
+    fn search(self) -> AppResult<DataSearch> {
+        Ok(DataSearch::new(
+            SearchEllipsoid::isotropic(self.radius)?,
+            0,
+            self.max_samples,
+        )?)
     }
 }
 
@@ -381,7 +387,7 @@ fn krige(args: &KrigeArgs) -> AppResult {
             let model = args.model.variogram()?;
             targets
                 .iter()
-                .map(|&t| ordinary_kriging(&search.select(&samples, t), t, &model))
+                .map(|&t| ordinary_kriging(&search.select_samples(&samples, t)?, t, &model))
                 .collect::<Result<Vec<_>, _>>()?
         }
         KrigingType::Simple => {
@@ -392,7 +398,7 @@ fn krige(args: &KrigeArgs) -> AppResult {
             };
             targets
                 .iter()
-                .map(|&t| simple_kriging(&search.select(&samples, t), t, &model, mean))
+                .map(|&t| simple_kriging(&search.select_samples(&samples, t)?, t, &model, mean))
                 .collect::<Result<Vec<_>, _>>()?
         }
     };

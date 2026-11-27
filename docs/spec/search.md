@@ -76,14 +76,16 @@ fast.
   permutation (property test).
 - **S3 Octants.** With `per_octant = n`, the sorted candidates are scanned
   in order. Each is kept if fewer than `n` earlier ones share its octant
-  (`SRCHSUPR.FOR`'s definition and boundary rules), and the scan stops
-  after `8n` are kept. Tests: one hand-placed datum on each octant
-  boundary; cap per octant; the `8n` stop.
+  (`SRCHSUPR.FOR`'s definition and boundary rules). GSLIB also stops the
+  scan after `8n` are kept, which is only a shortcut: every octant is then
+  full, so the result is the same. Tests: one hand-placed datum on each
+  octant boundary; cap per octant; the cut counting only data the octants
+  kept.
 - **S4 Truncation.** The result is the first `max_data` of the sequence
   after S3. Tests: `max_data` smaller, equal and larger than the candidate
   count.
 - **S5 Too few data.** If fewer than `min_data` remain, the search fails
-  with `Error::TooFewData { found, required }`, or, under the opt-in
+  with `Error::TooFewData { target, found, required }`, or, under the opt-in
   policy `OnTooFewData::Unestimated`, reports the location as unestimated
   (`None` in a row-aligned result, written with the program's code,
   D-023). Tests: both policies; `min_data = 0` never fails.
@@ -130,7 +132,9 @@ None.
 
 Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
 
-1. **Data search types and brute force** (`gslib_rs::search`).
+1. **Data search types and brute force** (`gslib_rs::search`; done: 13
+   tests. A mutation check caught 10 of 11 planted changes; the 11th,
+   dropping GSLIB's `8n` stop, is equivalent, see S3).
    - Work:
      - `SearchEllipsoid` and `DataSearch`, plus `Error::TooFewData` and
        `OnTooFewData`;

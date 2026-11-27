@@ -45,7 +45,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}`, `krige` CLI | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
-| search (`setsupr`/`srchsupr`) | 🟡 | `search::Search` | **anisotropic search ellipsoid**; **octant search**; **super-block search** (currently brute force, O(N) per lookup) |
+| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants (`docs/spec/search.md` step 1) | **super-block** accelerator (currently brute force, O(N) per lookup); `sgsim`'s node search and two-part search; CLI flags for anisotropy, octants and `ndmin`; parity fixtures through `kt3d` |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
 
@@ -103,6 +103,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
 | Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
+| Order of equidistant search data | unstable quicksort over super-block order (F-012) | by distance, then input row (D-024) | GSLIB's order: deferred to the exact-stream parity spec |
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
 | `lusim` unestimated code | −1.0 (collides with real data) | −999 by default, configurable (D-023) | `--unest -1` |

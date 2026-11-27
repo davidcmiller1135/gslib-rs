@@ -170,9 +170,22 @@ impl Anisotropy {
     /// Anisotropic distance between two points, in units of the major range.
     #[must_use]
     pub fn scaled_distance(&self, a: Point3, b: Point3) -> f64 {
+        norm(self.scaled(a, b))
+    }
+
+    /// The square of [`Anisotropy::scaled_distance`], computed without a
+    /// square root, as GSLIB's `sqdist` does (search limits compare it with
+    /// `radius²`).
+    #[must_use]
+    pub fn squared_scaled_distance(&self, a: Point3, b: Point3) -> f64 {
+        let v = self.scaled(a, b);
+        dot(v, v)
+    }
+
+    fn scaled(&self, a: Point3, b: Point3) -> [f64; 3] {
         let d = a.delta(b);
         let [r0, r1, r2] = self.rows;
-        norm([dot(r0, d), dot(r1, d), dot(r2, d)])
+        [dot(r0, d), dot(r1, d), dot(r2, d)]
     }
 }
 

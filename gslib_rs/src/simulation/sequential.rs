@@ -1,8 +1,11 @@
 //! Sequential Gaussian and sequential indicator simulation.
 //!
 //! Each node is kriged from the data and previously simulated nodes chosen by
-//! a [`Search`] neighbourhood. With [`Search::unlimited`], cost grows as
+//! one [`DataSearch`] over both. With [`DataSearch::unlimited`], cost grows as
 //! O(N⁴) in the number of nodes; a bounded search keeps it near O(N²).
+//!
+//! GSLIB searches data and simulated nodes separately (`docs/spec/search.md`,
+//! D-026); that node search is plan step 4.
 
 use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
@@ -14,7 +17,7 @@ use crate::kriging::simple_kriging;
 use crate::model::CovarianceModel;
 use crate::num::mean;
 use crate::sample::Sample;
-use crate::search::Search;
+use crate::search::DataSearch;
 
 /// Visit `nodes` in random order, computing each value from the conditioning
 /// set so far (data plus earlier nodes), and return values in node order.
@@ -24,7 +27,7 @@ use crate::search::Search;
 fn sequential<R, F>(
     data: &[Sample],
     nodes: &[Point3],
-    search: Search,
+    search: DataSearch,
     rng: &mut R,
     mut draw: F,
 ) -> Result<Vec<f64>>
@@ -46,7 +49,7 @@ where
         let value = if let Some(v) = existing {
             v
         } else {
-            let v = draw(&search.select(&conditioning, node), node, rng)?;
+            let v = draw(&search.select_samples(&conditioning, node)?, node, rng)?;
             // Only new locations join the conditioning set: a duplicate
             // location would make every later kriging system singular.
             conditioning.push(Sample::new(node, v)?);
@@ -66,13 +69,14 @@ where
 ///
 /// # Errors
 /// [`Error::SingularSystem`] if a kriging system fails (e.g. duplicate data
-/// locations).
+/// locations), or [`Error::TooFewData`] if the search requires more data
+/// than it finds.
 pub fn sgsim<R>(
     data: &[Sample],
     nodes: &[Point3],
     model: &CovarianceModel,
     mean: f64,
-    search: Search,
+    search: DataSearch,
     rng: &mut R,
 ) -> Result<Vec<f64>>
 where
@@ -93,14 +97,15 @@ where
 /// `model` is the indicator covariance.
 ///
 /// # Errors
-/// [`Error::InvalidInput`] if `data` is empty (p₀ is undefined), or
-/// [`Error::SingularSystem`] if a kriging system fails.
+/// [`Error::InvalidInput`] if `data` is empty (p₀ is undefined),
+/// [`Error::SingularSystem`] if a kriging system fails, or
+/// [`Error::TooFewData`] if the search requires more data than it finds.
 pub fn sisim<R>(
     data: &[Sample],
     nodes: &[Point3],
     threshold: f64,
     model: &CovarianceModel,
-    search: Search,
+    search: DataSearch,
     rng: &mut R,
 ) -> Result<Vec<bool>>
 where
@@ -137,6 +142,7 @@ const fn indicator(below: bool) -> f64 {
 mod tests {
     use super::*;
     use crate::model::{Kind, Structure, VariogramModel};
+    use crate::search::SearchEllipsoid;
     use approx::assert_abs_diff_eq;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
@@ -157,8 +163,8 @@ mod tests {
         )
         .unwrap()
     }
-    fn near() -> Search {
-        Search::new(12, f64::INFINITY).unwrap()
+    fn near() -> DataSearch {
+        DataSearch::new(SearchEllipsoid::unlimited(), 0, 12).unwrap()
     }
     fn rng(seed: u64) -> ChaCha8Rng {
         ChaCha8Rng::seed_from_u64(seed)
@@ -173,7 +179,7 @@ mod tests {
             &nodes,
             &exp_cov(3.0),
             0.0,
-            Search::unlimited(),
+            DataSearch::unlimited(),
             &mut rng(1),
         )
         .unwrap();
@@ -213,7 +219,7 @@ mod tests {
             &nodes,
             &exp_cov(3.0),
             0.0,
-            Search::unlimited(),
+            DataSearch::unlimited(),
             &mut rng(5),
         )
         .unwrap();

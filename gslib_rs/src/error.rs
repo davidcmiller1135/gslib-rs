@@ -49,6 +49,17 @@ pub enum Error {
         value: f64,
     },
 
+    /// A search found fewer data than it requires (GSLIB's `ndmin`).
+    #[error("only {found} data within the search at {target:?}, {required} required")]
+    TooFewData {
+        /// The location searched from.
+        target: crate::geometry::Point3,
+        /// How many data the search kept.
+        found: usize,
+        /// The minimum it requires.
+        required: usize,
+    },
+
     /// Two inputs that must correspond element-by-element do not.
     #[error("{what}: lengths differ ({left} vs {right})")]
     LengthMismatch {

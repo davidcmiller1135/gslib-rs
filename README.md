@@ -16,7 +16,7 @@ Library: variograms, kriging, and stochastic simulation. It is a library
   distance per lag.
 - **Kriging:** simple, ordinary (also with the power model) and simple
   cokriging, each returning the kriging variance.
-- **Search neighbourhood:** the k nearest samples within a radius.
+- **Search neighbourhood:** GSLIB's anisotropic search ellipsoid with `ndmin`/`ndmax` and octants (the CLI exposes the nearest `--max-samples` within `--radius`).
 - **Transforms:** normal scores (weighted, ties handled) and back-transform
   with GSLIB tail options.
 - **Simulation:** sequential Gaussian (SGS), sequential indicator (SIS) and
