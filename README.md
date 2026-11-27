@@ -57,6 +57,14 @@ where `TYPE` is `sph`, `exp`, `gau` or `hol`, or takes `pow:CC:OMEGA`. These
 are the same numbers as a GSLIB parameter file. Run `gslib-rs <command> --help`
 for every option.
 
+**Missing values.** No trimming is applied unless you ask for it, but a
+command refuses data whose value column contains −999, −99 or a value of
+magnitude 10²¹ or more, since GSLIB files use these as missing-value codes.
+Give `--tmin`/`--tmax` to trim them (a value is kept if `tmin ≤ v < tmax`,
+so `--tmin -998` drops −999), or `--no-trimming` if they are real data. NaN
+and infinite values are errors unless `--nan missing` or
+`--inf missing|clamp` says otherwise. Coordinates are never trimmed.
+
 ## Library
 
 ```rust

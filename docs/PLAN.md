@@ -117,7 +117,7 @@ and acceptance tests named in it.
 |---|---|---|---|
 | B1 | **Done.** Extraction API: `Trimming`, `NonFinite`, `GslibData::extract`, `samples` with row indices | `missing-values.md` step 1 (M1, M4, M5, M7, M9) | A2 |
 | B2 | **Done.** Row-aligned writing: `with_optional_column` | step 2 (M3, M8) | B1 |
-| B3 | CLI flags and the sentinel guard | step 3 (M6) | B1, B2 |
+| B3 | **Done** (`--unest` deferred to the first row-aligned output). CLI flags and the sentinel guard | step 3 (M6) | B1, B2 |
 | B4 | Parity fixtures with trimming (`nscore`, `gamv`, a limit equal to a datum) | step 4 | B1 |
 
 ### Phase C: finish the harness plan

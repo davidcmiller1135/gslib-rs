@@ -4,6 +4,7 @@
 //! and seeds the random number generator. All numerical work is done by pure
 //! library functions.
 
+mod missing;
 mod spec;
 
 use std::error::Error;
@@ -13,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gslib_rs::geometry::Point3;
-use gslib_rs::io::{Extraction, GslibData, Trimming, read_gslib, write_gslib};
+use gslib_rs::io::{Extraction, GslibData, PresentSamples, read_gslib, write_gslib};
 use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::plot::{VariogramPlot, save};
@@ -22,6 +23,7 @@ use gslib_rs::search::Search;
 use gslib_rs::simulation::{sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::{LagClasses, experimental_variogram};
+use missing::MissingArgs;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -69,18 +71,14 @@ impl Columns {
         usize::from(c.saturating_sub(1))
     }
 
-    fn samples(self, data: &GslibData) -> AppResult<Vec<Sample>> {
-        // No trimming yet; the CLI flags and the sentinel guard are
-        // docs/spec/missing-values.md step 3.
-        Ok(data
-            .samples(
-                Self::zero_based(self.x),
-                Self::zero_based(self.y),
-                Self::zero_based(self.z),
-                Self::zero_based(self.value),
-                &Extraction::new(Trimming::NONE),
-            )?
-            .into_samples())
+    fn present(self, data: &GslibData, policy: &Extraction) -> gslib_rs::Result<PresentSamples> {
+        data.samples(
+            Self::zero_based(self.x),
+            Self::zero_based(self.y),
+            Self::zero_based(self.z),
+            Self::zero_based(self.value),
+            policy,
+        )
     }
 
     fn points(self, data: &GslibData) -> AppResult<Vec<Point3>> {
@@ -157,6 +155,8 @@ struct VariogramArgs {
     input: PathBuf,
     #[command(flatten)]
     columns: Columns,
+    #[command(flatten)]
+    missing: MissingArgs,
     /// Maximum separation distance.
     #[arg(short = 'd', long)]
     max_dist: f64,
@@ -189,6 +189,8 @@ struct KrigeArgs {
     data: PathBuf,
     #[command(flatten)]
     columns: Columns,
+    #[command(flatten)]
+    missing: MissingArgs,
     /// Target locations file (x, y, z in columns 1-3).
     #[arg(long)]
     targets: PathBuf,
@@ -214,6 +216,8 @@ struct SgsimArgs {
     data: PathBuf,
     #[command(flatten)]
     columns: Columns,
+    #[command(flatten)]
+    missing: MissingArgs,
     /// Simulation node file (x, y, z in columns 1-3).
     #[arg(long)]
     sim: PathBuf,
@@ -239,6 +243,8 @@ struct SisimArgs {
     data: PathBuf,
     #[command(flatten)]
     columns: Columns,
+    #[command(flatten)]
+    missing: MissingArgs,
     /// Simulation node file (x, y, z in columns 1-3).
     #[arg(long)]
     sim: PathBuf,
@@ -282,16 +288,40 @@ fn run(cli: Cli) -> AppResult {
     }
 }
 
-fn read_samples(path: &Path, columns: Columns) -> AppResult<Vec<Sample>> {
-    let samples = columns.samples(&read_gslib(path)?)?;
-    if samples.is_empty() {
-        return Err(format!("{}: no data rows", path.display()).into());
+/// The data file's samples whose values are present, after the sentinel
+/// guard (M6) and the trimming and non-finite policies.
+fn read_samples(path: &Path, columns: Columns, missing: &MissingArgs) -> AppResult<Vec<Sample>> {
+    let at = |e: String| format!("{}: {e}", path.display());
+    let data = read_gslib(path)?;
+    missing
+        .guard(&data, Columns::zero_based(columns.value))
+        .map_err(at)?;
+    let present = columns
+        .present(&data, &missing.extraction()?)
+        .map_err(|e| {
+            let hint = if matches!(e, gslib_rs::Error::NonFinite { .. }) {
+                "; use --nan missing or --inf missing|clamp to accept such values"
+            } else {
+                ""
+            };
+            at(format!("{e}{hint}"))
+        })?;
+    if present.samples().is_empty() {
+        return Err(at(if present.total_rows() == 0 {
+            "no data rows".to_owned()
+        } else {
+            format!(
+                "all {} rows are missing after trimming",
+                present.total_rows()
+            )
+        })
+        .into());
     }
-    Ok(samples)
+    Ok(present.into_samples())
 }
 
 fn variogram(args: &VariogramArgs) -> AppResult {
-    let samples = read_samples(&args.input, args.columns)?;
+    let samples = read_samples(&args.input, args.columns, &args.missing)?;
     let lags = experimental_variogram(&samples, &LagClasses::new(args.max_dist, args.n_lags)?);
 
     let sink: Box<dyn std::io::Write> = match &args.out_csv {
@@ -341,7 +371,7 @@ fn variogram(args: &VariogramArgs) -> AppResult {
 }
 
 fn krige(args: &KrigeArgs) -> AppResult {
-    let samples = read_samples(&args.data, args.columns)?;
+    let samples = read_samples(&args.data, args.columns, &args.missing)?;
     let targets_file = read_gslib(&args.targets)?;
     let targets = TARGET_COLUMNS.points(&targets_file)?;
     let search = args.search.search()?;
@@ -381,7 +411,7 @@ fn realization_path(prefix: &Path, i: usize) -> PathBuf {
 
 fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
     let data_file = read_gslib(&args.data)?;
-    let samples = read_samples(&args.data, args.columns)?;
+    let samples = read_samples(&args.data, args.columns, &args.missing)?;
     let nodes_file = read_gslib(&args.sim)?;
     let nodes = TARGET_COLUMNS.points(&nodes_file)?;
     let model = args.model.covariance()?;
@@ -420,7 +450,7 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
 
 fn simulate_indicator(args: &SisimArgs) -> AppResult {
     let data_file = read_gslib(&args.data)?;
-    let samples = read_samples(&args.data, args.columns)?;
+    let samples = read_samples(&args.data, args.columns, &args.missing)?;
     let nodes_file = read_gslib(&args.sim)?;
     let nodes = TARGET_COLUMNS.points(&nodes_file)?;
     let model = args.model.covariance()?;
