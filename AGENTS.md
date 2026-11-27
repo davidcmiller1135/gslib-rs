@@ -152,7 +152,13 @@ Further rules:
   cargo doc --workspace --no-deps
   cargo deny check
   ```
-- **Reference fixtures / GSLIB oracle:** not yet built. Planned location is
-  `tests/fixtures/gslib/`, each fixture with a provenance note: GSLIB version,
-  compiler and flags, source patches, input data, and parameter file.
+- **GSLIB 2.0 source (the oracle):** `vendor/gslib-2.0/src/`, vendored
+  byte-for-byte. **Never modify it**: `MANIFEST.sha256` verifies it, and
+  build-time changes are applied to a copy. Answer questions about GSLIB's
+  behaviour from this source, citing file and routine. Its licence notice is
+  in `NOTICE`.
+- **Reference fixtures:** not yet built. Planned location is
+  `tests/fixtures/gslib/`, each fixture with a provenance note: compiler and
+  flags, source patches, input data, and parameter file
+  (`docs/spec/harness.md`).
 - **Roadmap, divergences, provenance ledger:** `docs/ROADMAP.md`.

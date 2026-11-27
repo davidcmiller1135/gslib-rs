@@ -1,0 +1,4 @@
+# GSLIB 2.0 is vendored byte-for-byte (DOS CRLF line endings). Never convert
+# line endings or treat these files as text, or the checksums in
+# vendor/gslib-2.0/MANIFEST.sha256 stop matching the original archive.
+vendor/gslib-2.0/src/** -text linguist-vendored

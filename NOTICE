@@ -1,0 +1,24 @@
+gslib-rs
+Copyright (c) 2025 davidcmiller1135
+Licensed under the MIT License (see LICENSE).
+
+gslib-rs is a Rust port of GSLIB 2.0, the Geostatistical Software Library
+(Deutsch & Journel). Parts of gslib-rs are derived from GSLIB 2.0, and the
+GSLIB 2.0 source is included unmodified in vendor/gslib-2.0/. GSLIB 2.0 is
+distributed under the following notice, reproduced verbatim as its
+conditions require:
+
+C%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+C                                                                      %
+C Copyright (C) 1996, The Board of Trustees of the Leland Stanford     %
+C Junior University.  All rights reserved.                             %
+C                                                                      %
+C The programs in GSLIB are distributed in the hope that they will be  %
+C useful, but WITHOUT ANY WARRANTY.  No author or distributor accepts  %
+C responsibility to anyone for the consequences of using them or for   %
+C whether they serve any particular purpose or work at all, unless he  %
+C says so in writing.  Everyone is granted permission to copy, modify  %
+C and redistribute the programs in GSLIB, but only under the condition %
+C that this notice and the above copyright notice remain intact.       %
+C                                                                      %
+C%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

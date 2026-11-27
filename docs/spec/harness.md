@@ -1,7 +1,7 @@
 # Spec: Fortran comparison harness
 
-Status: **specified** (decisions D-001 to D-012 in `decisions.md`); one
-blocker remains: D-002 (GSLIB version and licence, read from the archive).
+Status: **specified** (decisions D-001 to D-013 in `decisions.md`); no
+blockers. The GSLIB 2.0 source is vendored (D-013).
 
 ## Purpose
 
@@ -24,8 +24,9 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
 ## Decisions so far
 
 - Reference source: official download from gslib.com (D-001).
-- Version and licence: **blocked** (D-002); until resolved, nothing from GSLIB
-  is committed.
+- Reference: GSLIB 2.0 (Fortran 77) under the 1996 Stanford notice (D-002,
+  F-003). It is vendored unmodified in `vendor/gslib-2.0/src/`, with a
+  top-level `NOTICE` (D-013).
 - Oracle runs offline via a pinned recipe; tests compare against committed
   fixtures (D-003).
 - Input data: our own seeded synthetic suites plus the GSLIB book data sets
@@ -33,8 +34,8 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
 - The oracle is the double-promoted build from source **only**; precompiled
   binaries (e.g. upc-ghs/gslib-executables, F-001) are never a test oracle
   (D-005).
-- The user provides the GSLIB archive to a session, which builds it with
-  gfortran (D-006).
+- The recipe builds the vendored source with gfortran in a session (D-006,
+  D-013).
 - Each reference case is a versioned TOML case file. The recipe generates
   GSLIB's `.par` from it; Rust tests read the TOML (D-007).
 - The recipe is a Rust `xtask`. The schema lives in an internal `oracle-case`
@@ -48,9 +49,10 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
 
 ## Requirements
 
-- **R1 Recipe.** `cargo xtask oracle` (D-008), given gfortran and a GSLIB
-  archive (`--archive PATH`, provided by the user per D-006):
-  1. fails unless the archive's SHA-256 matches the pinned value;
+- **R1 Recipe.** `cargo xtask oracle` (D-008), given gfortran:
+  1. verifies `vendor/gslib-2.0/src/` against `MANIFEST.sha256`, and fails on
+     any mismatch (with `--archive PATH`, also checks the original zip's
+     SHA-256);
   2. widens numeric output formats with generic rewrite rules (no GSLIB source
      lines stored in the repository);
   3. builds with double promotion, recording compiler version and flags;
@@ -99,8 +101,7 @@ loosening tolerances:
 
 ## Open questions
 
-- D-002 (blocked): GSLIB version and licence, to be read from the archive
-  when it arrives. Until then, nothing derived from GSLIB is committed.
+- None. (D-002 resolved by F-003 and D-013.)
 
 ## Implementation plan
 
@@ -111,7 +112,8 @@ step weakens a lint or tolerance.
    (`publish = false`) and the `cargo xtask` alias.
    - Schema v1 types and TOML parsing in `oracle-case`.
    - Fixture discovery and provenance validation (R6) in `harness`.
-   - Archive SHA-256 verification in `xtask oracle --archive`.
+   - Vendored-source verification against `MANIFEST.sha256` in
+     `xtask oracle`.
    - New dependencies (e.g. `serde`, `toml`, `sha2`) justified and passing
      `cargo deny`.
    - Tests: schema round trip; rejection of a missing provenance field;
@@ -121,8 +123,7 @@ step weakens a lint or tolerance.
    double promotion, and records the full compiler version and flags.
    - Tests: rewrite rules on Fortran snippets written for the test (no GSLIB
      source lines).
-   - The patterns the rules must match are confirmed on the real source:
-     blocked on the archive.
+   - The patterns the rules must match are taken from the vendored source.
 3. **Synthetic data generator** (`cargo xtask gen-data`): seeded and
    deterministic, writing a note per suite (R4).
    - Tests: the same seed gives byte-identical output; each suite contains
@@ -135,7 +136,6 @@ step weakens a lint or tolerance.
      dip (including its sign), plunge, and anisotropy ratios.
    - Outcome: tick off the `setrot`/`cova3` items in ROADMAP §6, or fix the
      code.
-   - Blocked on: archive, D-002.
 5. **nscore / backtr.**
    - Work: `.par` generators and a transformation-table reader.
    - Cases: tie-free (exact), weighted, ties (expected deviation), and tails
@@ -157,5 +157,5 @@ step weakens a lint or tolerance.
      statistics plus the independent model-reproduction checks.
    - Fixture under 2 MB (D-011).
 
-Steps 1–3 can start now. Steps 4–8 and every committed fixture wait for the
-archive (D-006) and the licence check (D-002).
+Nothing is blocked: every step can proceed in order. Step 4 also ticks off
+provenance-ledger items against the vendored source.

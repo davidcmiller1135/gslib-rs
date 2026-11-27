@@ -16,7 +16,7 @@ Decisions made while specifying gslib-rs, newest last. Format and process:
   and its licence must be read from the site. See D-002.
 
 ## D-002: GSLIB version and licence terms
-- Status: blocked (parity-verify)
+- Status: decided (see the update at the end of this entry)
 - Topic: harness.md
 - Question: Which GSLIB version is the reference, and what may we redistribute
   (source, patches, data sets, outputs)?
@@ -30,6 +30,10 @@ Decisions made while specifying gslib-rs, newest last. Format and process:
 - Consequences: until resolved, assume **nothing from GSLIB may be committed**
   (no source, patches, or book data sets). Record the archive's name and
   checksum once it has been downloaded. Ledger: `docs/ROADMAP.md` §6.
+- **Update (resolved):** the reference is **GSLIB 2.0 (Fortran 77)** (F-003),
+  under the 1996 Stanford notice. That notice permits copying, modification
+  and redistribution on condition that the notice stays intact. The GSLIB90
+  archive (F-002) is not used. Handling is decided in D-013.
 
 ## D-003: Where the oracle runs
 - Status: decided
@@ -285,3 +289,59 @@ it has been committed or built.
   and nothing from it was read beyond the notices and file list. The user has
   the Fortran 77 (2nd edition) source and will provide it for the same checks
   (D-002).
+
+## Finding F-003: GSLIB 2.0 (Fortran 77) source archive (inspected 2026-11-27)
+Facts read from the archive the user uploaded (`gslib77.zip`):
+- **SHA-256:**
+  `f8a4bd8fe2b90b26f6b3f33ccf795f9d73cb2560c524128c7865b050a5f763d1`
+  (3,523,952 bytes, 198 entries).
+- **Version:** GSLIB 2.0.
+  - The program files declare `VERSION=2.000`.
+  - `README` begins "README file for DOSEXEC GSLIB 2.0  Last Revised:
+    February 14, 1997".
+  - Entry dates run from 1996-05-20 to 1997-03-09.
+  - This matches the 2nd-edition parity target in `docs/ROADMAP.md`.
+- **Contents:**
+  - one directory per program (`KT3D/KT3D.FOR`, `.INC`, `.PAR`, …);
+  - 37 library routines in `GSLIB/` (`COVA3.FOR`, `SETROT.FOR`,
+    `ACORNI.FOR`, `GAUINV.FOR`, `KSOL.FOR`, …);
+  - 1997 Windows/DOS executables in `BIN/` (not used, per D-005);
+  - the book data sets in `DATA/` (`CLUSTER.DAT`, `TRUE.DAT`, `YDATA.DAT`,
+    `DATA.DAT`, `97DATA.DAT`, `PARTA`–`PARTC.DAT`).
+- **Licence text:**
+  - 56 files carry the Stanford notice: "Copyright (C) 1996, The Board of
+    Trustees of the Leland Stanford Junior University. All rights reserved.
+    … Everyone is granted permission to copy, modify and redistribute the
+    programs in GSLIB, but only under the condition that this notice and the
+    above copyright notice remain intact."
+  - The 37 `GSLIB/` routines and the data files carry no notice of their
+    own.
+  - No Statios text and no MIT licence text appear anywhere.
+
+## D-013: Honouring the GSLIB 2.0 notice; vendoring the source
+- Status: decided
+- Topic: harness.md (licensing affects the whole repository)
+- Question: How do we honour the Stanford notice, and what may be committed?
+- Options: MIT plus a NOTICE, with data sets and patches committable; MIT
+  plus a NOTICE, committing nothing; also vendor the source.
+- Decision: **vendor the source.**
+  - Our own code stays MIT.
+  - A top-level `NOTICE` reproduces the Stanford copyright and notice
+    verbatim, and states that parts of gslib-rs are derived from GSLIB 2.0.
+  - The GSLIB 2.0 archive, minus `BIN/` (executables, D-005), is committed
+    byte-for-byte under `vendor/gslib-2.0/src/`, with `MANIFEST.sha256` and a
+    provenance README.
+- Rationale: user's choice. With the source in the repository the recipe is
+  self-contained: no upload, no network, nothing to lose. Vendoring is
+  permitted by the notice as long as it stays intact.
+- Consequences:
+  - **Vendored files are never modified.** `.gitattributes` disables line-ending
+    conversion (they are CRLF), and the manifest verifies them. Build-time
+    changes (format widening) are applied to a copy by the recipe.
+  - The recipe reads `vendor/gslib-2.0/src/`. D-006's uploaded archive is no
+    longer needed day to day, and `--archive` becomes optional (to re-verify
+    against an original zip).
+  - Book data sets (`DATA/`) can be used in fixtures directly (D-004).
+  - Supersedes the "commit nothing from GSLIB" consequences of D-002 and D-003.
+  - The provenance-ledger items (`docs/ROADMAP.md` §6) can now be checked
+    against the vendored source.
