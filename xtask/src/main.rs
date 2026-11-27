@@ -7,7 +7,11 @@
 //! - `cargo xtask oracle build [--out DIR]` copies the source, widens its
 //!   output formats ([`rewrite`]), and builds every program with double
 //!   promotion into `DIR` (default `target/oracle`).
+//! - `cargo xtask oracle generate [--program NAME]` builds, then runs GSLIB on
+//!   every case in `tests/fixtures/gslib/` and writes its fixture
+//!   ([`generate`]).
 
+mod generate;
 mod rewrite;
 
 use std::error::Error;
@@ -73,6 +77,15 @@ enum Oracle {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Build, then regenerate the fixtures under `tests/fixtures/gslib/`.
+    Generate {
+        /// Only this program's cases.
+        #[arg(long)]
+        program: Option<String>,
+        /// Build directory (default: `target/oracle` in the workspace).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -114,7 +127,12 @@ fn run(cli: Cli) -> AppResult {
         }
         Command::Oracle(Oracle::Build { out }) => {
             let root = workspace_root()?;
-            build(&root, &out.unwrap_or_else(|| root.join("target/oracle")))
+            build(&root, &out.unwrap_or_else(|| root.join("target/oracle"))).map(drop)
+        }
+        Command::Oracle(Oracle::Generate { program, out }) => {
+            let root = workspace_root()?;
+            let out = out.unwrap_or_else(|| root.join("target/oracle"));
+            generate::generate(&root, &out, program.as_deref())
         }
     }
 }
@@ -162,7 +180,7 @@ struct BuildOutcome {
 }
 
 /// The reference build (R1 steps 2 and 3).
-fn build(root: &Path, out: &Path) -> AppResult {
+fn build(root: &Path, out: &Path) -> AppResult<BuildOutcome> {
     let vendor = root.join("vendor/gslib-2.0");
     let manifest = std::fs::read(vendor.join("MANIFEST.sha256"))?;
     let src = vendor.join("src");
@@ -186,7 +204,8 @@ fn build(root: &Path, out: &Path) -> AppResult {
         failed,
     };
     std::fs::write(out.join("build-info.toml"), build_info(&outcome)?)?;
-    report(&outcome, out)
+    report(&outcome, out)?;
+    Ok(outcome)
 }
 
 fn compiler_version() -> AppResult<String> {

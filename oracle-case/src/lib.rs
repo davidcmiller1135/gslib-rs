@@ -12,6 +12,8 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod vmodel;
+
 /// Version of the case and provenance schema this crate reads.
 pub const SCHEMA_VERSION: u32 = 1;
 

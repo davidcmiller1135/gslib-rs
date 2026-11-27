@@ -1817,6 +1817,7 @@ dependencies = [
  "clap",
  "oracle-case",
  "tempfile",
+ "toml",
 ]
 
 [[package]]
