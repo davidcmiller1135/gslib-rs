@@ -1315,7 +1315,7 @@ From `vendor/gslib-2.0/src/`:
 - Options: ChaCha8 by default with ACORN opt-in; ACORN by default; another
   modern generator (PCG64, Xoshiro256++).
 - Decision: **ChaCha8 (`rand_chacha::ChaCha8Rng`) by default.** ACORN
-  (F-016) is a named generator implementing `rand::RngCore`, used by the
+  (F-016) is a named `rand` generator (rand 0.10's `TryRng`/`Rng`; `RngCore` in earlier versions), used by the
   opt-in exact-stream parity mode.
 - Rationale:
   - ChaCha8 is a modern counter-based generator with independent streams
@@ -1370,7 +1370,7 @@ From `vendor/gslib-2.0/src/`:
 - Decision:
   - **Now, three building blocks, each checked bit for bit against
     GSLIB:**
-    - `Acorn`, a `rand::RngCore` with GSLIB's seeding (order 12, modulus
+    - `Acorn`, a `rand` generator (`TryRng`/`Rng` in rand 0.10) with GSLIB's seeding (order 12, modulus
       2³⁰, zeroed state) and an explicit 1 000-draw warm-up (F-016);
     - GSLIB's random path: one draw per node, nodes visited in increasing
       order of their draws (plus the multiple-grid offsets when used);

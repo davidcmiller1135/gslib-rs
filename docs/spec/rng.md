@@ -36,7 +36,7 @@ reproducible from their seed and independent of thread count.
 ## Decisions
 
 - **Generator** (D-036): ChaCha8 by default; ACORN as an opt-in
-  `rand::RngCore` for exact-stream parity.
+  `rand` generator for exact-stream parity.
 - **Streams** (D-037): realization k uses `ChaCha8Rng::seed_from_u64(master)`
   with `set_stream(k)`, so it depends only on (master, k).
 - **Exact-stream parity** (D-038): now, ACORN with GSLIB's seeding and
