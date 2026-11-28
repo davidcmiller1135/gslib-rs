@@ -2243,3 +2243,40 @@ the legacy reading of `harness::gamv::legacy`, on all 17 gamv fixtures.
   minimum, renormalising, cutoffs): that is `ik3d`'s domain.
 - Consequences: `kt3d` stays 🟡 in the roadmap until the deferred feature
   lands; this spec does not finish `kt3d` parity on its own.
+
+## D-055: When a kriging system is singular
+- Status: decided (owner, 2026-11-28)
+- Topic: kt3d.md
+- Question: GSLIB's `ktsol` calls a system singular when a pivot has
+  `|p| < 1e-11` (`KTSOL.FOR`, `tol = 0.1e-10`), an absolute test on its
+  rescaled covariance-form matrix. gslib-rs fails only on a failed
+  Cholesky, an exact zero pivot or a non-finite result. What should the
+  test be?
+- Options: (A) a scale-free test by default, GSLIB's pivot test as a legacy
+  policy; (B) today's exact-failure test by default, the same legacy
+  policy; (C) GSLIB's absolute test by default.
+- Decision: **A.**
+  - Default, `SingularTest::Rank`: `Error::SingularSystem` when the
+    reciprocal condition number of the system as gslib-rs builds it is
+    below `n·ε` (n equations, ε = `f64::EPSILON`), as well as on any failed
+    factorisation or non-finite result.
+  - Legacy, `SingularTest::GslibPivot`: rebuild GSLIB's matrix (covariance
+    form, `unbias = C(0)`, drift rows scaled by `resc`/`resce`, coordinates
+    relative to the block's lower-left corner) and run `ktsol`'s
+    elimination with partial pivoting; singular if `n ≤ 1` or any pivot
+    has `|p| < 1e-11`.
+- Rationale: an absolute pivot threshold depends on the data's units, so as
+  a default it is a silent coercion (`AGENTS.md`, *Numerical correctness*,
+  *Legacy behaviour*); exact failure alone lets numerically meaningless
+  weights through (*Explicit failures*). `n·ε` flags only systems with no
+  correct digits, so ill-conditioned but solvable systems (the
+  `gaussian_ill_conditioned` fixture, cond ≈ 4e5) still pass. The legacy
+  test is what UNEST-mask parity with GSLIB needs.
+- Consequences:
+  - the solve needs a condition estimate (one extra factorisation or an
+    SVD on at most `ndmax + 10` rows);
+  - GSLIB's matrix must be buildable for the legacy test, so that path uses
+    GSLIB's drift frame whatever the open drift-frame decision chooses for
+    the default;
+  - which test applies is an input to the `OnSingular` policy (next
+    decision), not a global setting.

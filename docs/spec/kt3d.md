@@ -96,7 +96,18 @@ built from the kriging weights (negative `koption`). It belongs to the
 | # | Topic | Default (gslib-rs) | Legacy (GSLIB) |
 |---|---|---|---|
 | D-054 | Scope | all of `kt3d` except the IK-type distribution (deferred to D3) | (n/a) |
+| D-055 | Singular test | `SingularTest::Rank`: rcond < n·ε, failed factorisation, non-finite result | `SingularTest::GslibPivot`: `ktsol` on GSLIB's scaled matrix, `\|p\| < 1e-11` |
 
 ## Acceptance criteria
 
-To be written as decisions are made.
+- **K1 (D-055).** Given a system whose reciprocal condition number is
+  below `n·ε` (e.g. two data at one location with a zero nugget), when it is
+  solved under `SingularTest::Rank`, then it is singular. Given the
+  `gaussian_ill_conditioned` fixture's systems, then none is singular.
+- **K2 (D-055).** Under `SingularTest::GslibPivot`, the set of systems called
+  singular equals the set GSLIB writes as UNEST for that reason, on fixtures
+  with coincident data (`ties.dat`) and on one with data in units where
+  `C(0) ≈ 1e-12`, so the absolute threshold binds.
+- **K3 (D-055).** Unit invariance: scaling every value by 10⁶ and the
+  model's variance contributions by 10¹² does not change which systems
+  `SingularTest::Rank` calls singular (property test).
