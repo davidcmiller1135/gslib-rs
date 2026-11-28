@@ -34,7 +34,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `cova3` / `setrot` | ✅ | `model::VariogramModel`, `geometry::Anisotropy` | all five structure types and three-angle anisotropy; tested against hand-derived values, not yet against Fortran |
-| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008), with trimming (F-011) | **directions** (azimuth/dip with tolerances and bandwidths); sill standardization; the other 9 variogram types (cross, covariance, correlogram, general/pairwise relative, log, madogram, indicator); multiple variables; CLI on GSLIB's lags |
+| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008), with trimming (F-011) | specified in `docs/spec/gamv.md` (D-041 to D-052): directions, the other 9 variogram types, multiple variables, standardisation, indicators, CLI on GSLIB's lags; implementation in progress |
 | `gam` | ⬜ | | variograms of gridded data along grid directions |
 | `varmap` | ⬜ | | variogram maps |
 | `vmodel` | 🟡 | `VariogramModel::gamma` | write model values along directions |
@@ -101,7 +101,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Normal CDF (`backtr` tails) | `gcum`: polynomial approximation, error ≤ 7.458e-8, exactly 0 or 1 past \|x\| > 6 (F-007) | `libm::erfc`, ~1 ulp | not planned: extension |
 | Back-transform tails | options 1 (linear), 2 (power), 4 (hyperbolic, upper only); no clamping option | 1 (linear) only, plus `Tail::Clamp` (an extension) | power and hyperbolic planned |
 | RNG | ACORN, global state, one stream across all realizations (F-016) | caller-supplied `rand::Rng`; by default ChaCha8, realization k on stream k of the master seed (D-036, D-037) | ACORN as a `rand` generator with GSLIB's seeding and warm-up, for exact-stream parity (D-038; `docs/spec/rng.md`) |
-| Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
+| Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a; `sasim` should move to grid lag vectors, as GSLIB's SASIM uses (D-042) |
 | Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
 | Super-block selection misses data (kt3d) | `picksup` tests 27 lattice points between blocks, so a thin rotated search ellipsoid can reach into a skipped block: data inside the ellipsoid are ignored (F-012, confirmed in F-015) | exact block bound, never skips an in-range datum (D-025) | none (a defect) |
 | Ordinary kriging with one datum (kt3d) | UNEST, since OK's unbiasedness counts as a drift term (`1 ≤ na ≤ mdt = 1`, F-014) | estimates with weight 1, variance 2γ(h) | possible legacy policy |
@@ -114,8 +114,13 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
 | `lusim` unestimated code | −1.0 (collides with real data) | −999 by default, configurable (D-023) | `--unest -1` |
-| Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled (γ unaffected) | each pair counted once | n/a (reporting convention); D-017 |
-| π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`) | exact `π` | planned for exact-stream parity |
+| Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled; with tail ≠ head this averages the two orderings | each pair reported once; both orderings still averaged, so values equal GSLIB's (D-043) | n/a (reporting convention); D-017 |
+| Angle tolerances ≤ 0 (`gamv`) | silently 45° | `Error::InvalidInput` | `NonPositiveAngleTolerance::Gslib45` (D-044) |
+| Types 6/7, omnidirectional, tail ≠ head (`gamv`) | the swapped term is computed from the unswapped values; can give `NaN`/`Inf` | uses the swapped values; non-finite → error | `OmniRelativeLog::GslibDuplicate` (D-047) |
+| Undefined lag values (`gamv`) | γ = 0 (types 4, 5) or −999 (type −3); standardisation silently skipped for a sill ≤ 0 | `gamma: None`; standardising with a sill ≤ 0 is an error | GSLIB's values at output (D-049) |
+| Indicators (`gamv`, types 9/10) | `I = 1` if `v ≥ c`; categories by `int(v + 0.5)`; categorical sill 0 (F-022) | `I = 1` if `v ≤ c` (IK3D's convention); exact integer categories; sill p(1−p) | gamv's conventions in the fixture adapter (D-050). Flag: `sasim` uses `v < t` |
+| `gamv` edge cases | `atol = 90` drops pairs exactly perpendicular to the azimuth (F-023); tail/head depends on row order for mixed-sign pairs (F-024) | same (reproduced) | flagged: correct later |
+| π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`, `gamv`) | exact `π` | `PiConstant::Gslib`: planned for exact-stream parity, and needed for exact `gamv` pair counts at tolerance edges (F-020, D-046). Flagged: a symmetric boundary rule |
 | Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |
 | Power model nugget | **defect:** the nugget cancels out of γ (`cova3` puts `c0` in `cmax`, F-006) | the nugget applies at every h > 0 | not planned (GSLIB defect) |
@@ -201,6 +206,8 @@ Once parity is solid:
   streaming over large grids. (The exact super-block is done, about 48×
   faster than brute force on 20 000 data. An *approximate* search would
   break D-025's exactness, so it could only be a named opt-in.)
+- **True-cone direction tolerance** for `gamv` (angle to the 3-D direction
+  vector, cylindrical bandwidth), alongside GSLIB's window (D-045).
 - **Non-stationarity:** locally varying anisotropy and trends.
 - **Multiple-point statistics** (SNESIM-style) and Gaussian-process
   formulations of kriging.

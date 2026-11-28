@@ -22,18 +22,18 @@ and findings: `docs/spec/decisions.md`.
 | M0 | Foundations | done |
 | M1 | Merged and running on GitHub | **blocked on the owner** (§2) |
 | M2 | Missing values handled correctly | done (F-011) |
-| M3 | Variograms match GSLIB | omnidirectional `gamv` done; directional `gamv` and the other variogram types need a spec |
+| M3 | Variograms match GSLIB | omnidirectional `gamv` done; directional `gamv` and the other variogram types specified (`docs/spec/gamv.md`, D-041 to D-052), implementation in progress on PR #5 |
 | M4 | Kriging matches GSLIB | search (steps 1–5, CLI flags) and point SK/OK done (F-015); block kriging, trend and external drift, cross-validation, `OnSingular` need a spec |
 | M5 | Simulation matches statistically | RNG spec; ACORN, path and `gauinv` bit for bit (F-017); `sgsim` statistical parity (F-018); parallel realizations. Open: `sisim` parity, transformed `sgsim` cases, the covariance lookup table, 3-D `sgsim` (the stock build is 2-D only; needs a recorded patch), the optional exact-stream mode |
 | M6 | Drop-in for GSLIB users | not started: `.par` files and a compatibility mode, `declus`, finishing `nscore`/`backtr` |
 | M7 | Every GSLIB program | not started: `ik3d`, multi-threshold `sisim`, `cokb3d`, the rest |
 | M8 | Beyond GSLIB | parallelism done; optional GPU benchmark and roadmap §5 remain |
 
-**Specs still to write (grill sessions):** directional `gamv`; the rest of
+**Specs still to write (grill sessions):** the rest of
 `kt3d`; `.par` files and the compatibility mode; then `declus` and `ik3d`.
 
-**Suggested next steps:** (A) fix CI (owner); (B) the directional `gamv`
-spec, to finish M3; (C) `sisim` parity fixtures, to close M5's most visible
+**Suggested next steps:** (A) fix CI (owner); (B) implement the directional
+`gamv` spec (in progress, PR #5), to finish M3; (C) `sisim` parity fixtures, to close M5's most visible
 gap.
 
 ## 2. GitHub integration
@@ -132,7 +132,7 @@ and acceptance tests named in it.
 
 | # | Work | Spec | Depends on |
 |---|---|---|---|
-| C1 | **Spec first:** directional `gamv` (azimuth/dip, angular tolerances, bandwidths) and the other nine variogram types. Decide which types are in scope, how `ivtype` maps to a Rust type, and how the cross-variable inputs are shaped. Then fixtures. | new `docs/spec/gamv.md` | A2 (B4 for trimmed cases) |
+| C1 | **Specified** (D-041 to D-052); implementing on PR #5: directional `gamv` and the other nine variogram types, then fixtures. | `docs/spec/gamv.md` (implementation plan) | A2 (B4 for trimmed cases) |
 | C2 | **Done** (`docs/spec/search.md`, D-024…D-028, all six steps, with CLI flags). Search neighbourhood: data search with brute force and an exact super-block, `kt3d` debug fixtures, `sgsim` node search and two-part search (plan steps 1–6) | `docs/spec/search.md` | A2 |
 | C3 | **Done** (F-015, D-035): `kt3d` harness step 7, simple and ordinary point kriging, with the search checked through `kt3d`'s debug output; the `picksup` miss confirmed | `harness.md` step 7 | — |
 | C4 | **Spec first:** `kt3d` completeness (block discretisation, trend/KT, external drift, cross-validation, gridded output, `OnSingular` policy and its UNEST code, ledger item "unsolvable systems are skipped") | new `docs/spec/kt3d.md` | C3 |
