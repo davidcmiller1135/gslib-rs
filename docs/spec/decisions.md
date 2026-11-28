@@ -2214,3 +2214,32 @@ the legacy reading of `harness::gamv::legacy`, on all 17 gamv fixtures.
       deterministic tests);
     - D-033's "covered by a GPU CI job" now means a check run on GPU
       hardware, as `docs/spec/parallelism.md` P6 says.
+
+## D-054: Scope of the kt3d completeness spec
+- Status: decided (owner, 2026-11-28)
+- Topic: kt3d.md
+- Question: Which of `kt3d`'s features does this spec cover?
+- Options: (A) everything except the undocumented IK-type distribution;
+  (B) everything, including it; (C) point/block, polynomial drift,
+  cross-validation, gridded output and `OnSingular` only.
+- Decision: **A.** In scope:
+  - point and block kriging (`nxdis`, `nydis`, `nzdis`);
+  - kriging with a trend, any of the nine polynomial drift terms (`idrif`);
+  - external drift (`ktype = 3`);
+  - simple kriging with a locally varying mean (`ktype = 2`);
+  - trend estimation (`itrend = 1`);
+  - cross-validation (`koption = 1`) and jackknife (`koption = 2`);
+  - gridded output;
+  - the `OnSingular` policy and the other UNEST paths.
+
+  **Deferred, but required for parity:** the undocumented IK-type
+  distribution built from the kriging weights (a negative `koption`;
+  `KT3D.FOR`, `readparm` lines 121–140 and `kt3d` lines 1026–1060). It
+  goes to the `ik3d`/`postik` spec (PLAN D3), which decides order
+  relations, and it is listed in `docs/ROADMAP.md` §1 under `kt3d`.
+- Rationale: (c), (d) and (e) share (b)'s matrix assembly, so deciding them
+  together avoids reopening it (`AGENTS.md`, *Scoped changes only*). The IK
+  feature turns weights into a distribution (shifting weights by their
+  minimum, renormalising, cutoffs): that is `ik3d`'s domain.
+- Consequences: `kt3d` stays 🟡 in the roadmap until the deferred feature
+  lands; this spec does not finish `kt3d` parity on its own.
