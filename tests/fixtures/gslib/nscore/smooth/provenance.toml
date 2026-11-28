@@ -5,7 +5,7 @@ compiler = "GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
 compiler_flags = ["-fdefault-real-8", "-fdefault-double-8", "-std=legacy", "-fno-automatic", "-O0", "-ffp-contract=off", "-ffixed-line-length-none"]
 rewrite_rules_version = 1
 case_sha256 = "4e0c3ea1e0b6b6309784aa59f74cbcd81a4ddcae91f9d88328e1bff5e29b8349"
-recipe_sha256 = "7fd53dcc8b8a22bd9656b6887561ce7fdfdeb178c15996581329efce440ce289"
-recipe_commit = "a9e6299cf6e91a57b49b7ea7fcc0f5d76953cba9"
-generated_utc = "2026-11-28T02:08:10Z"
+recipe_sha256 = "d2afce03fc4f776ff935e5543f1b40ec332a463ad74999446cb1d09838378ce8"
+recipe_commit = "78515b0487ddfa497065130a3313531567b05886"
+generated_utc = "2026-11-28T03:24:03Z"
 command_line = ["target/debug/xtask", "oracle", "generate"]
