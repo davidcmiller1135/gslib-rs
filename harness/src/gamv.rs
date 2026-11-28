@@ -4,6 +4,11 @@
 //! direction  1`), then `nlag + 2` rows `il dis gam np hm tm` (plus `hv tv`
 //! for correlograms). Lag 1 is the zero-distance class; lag `il ≥ 2` is
 //! centred on `(il − 2)·xlag`. Empty lags print zeros.
+//!
+//! [`legacy`] builds gslib-rs's request from a case the way GSLIB reads it
+//! (`docs/spec/gamv.md`, plan step 6).
+
+pub mod legacy;
 
 /// One row of `gamv` output.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -20,6 +25,8 @@ pub struct Row {
     pub head_mean: f64,
     /// Mean of tail values.
     pub tail_mean: f64,
+    /// Correlograms only: variances of the head and tail values.
+    pub variances: Option<(f64, f64)>,
 }
 
 /// One title line and its rows.
@@ -50,11 +57,22 @@ pub fn parse_output(text: &str) -> Result<Vec<Table>, String> {
             });
             continue;
         }
-        let [il, dis, gam, np, hm, tm] = tokens.as_slice() else {
+        let (head, extra) = tokens.split_at(tokens.len().min(6));
+        let Ok([il, dis, gam, np, hm, tm]) = <[&str; 6]>::try_from(head) else {
             return Err(format!(
-                "line {n}: expected 6 columns, got {}",
+                "line {n}: expected 6 or 8 columns, got {}",
                 tokens.len()
             ));
+        };
+        let extra = match extra {
+            [] => None,
+            [hv, tv] => Some((*hv, *tv)),
+            _ => {
+                return Err(format!(
+                    "line {n}: expected 6 or 8 columns, got {}",
+                    tokens.len()
+                ));
+            }
         };
         let real = |t: &str| {
             t.parse::<f64>()
@@ -69,6 +87,9 @@ pub fn parse_output(text: &str) -> Result<Vec<Table>, String> {
                 .map_err(|_| format!("line {n}: bad pair count"))?,
             head_mean: real(hm)?,
             tail_mean: real(tm)?,
+            variances: extra
+                .map(|(hv, tv)| Ok::<_, String>((real(hv)?, real(tv)?)))
+                .transpose()?,
         };
         tables
             .last_mut()

@@ -70,7 +70,7 @@ mod gamv {
             .map_or(Trimming::NONE, |[lo, hi]| Trimming::limits(lo, hi).unwrap());
         let vs = data
             .extract(
-                usize::try_from(p.variable_column - 1).unwrap(),
+                usize::try_from(p.columns().unwrap()[0] - 1).unwrap(),
                 &Extraction::new(trimming),
             )
             .unwrap();
@@ -207,6 +207,15 @@ mod gamv {
             .unwrap()
             .into_iter()
             .filter(|f| f.case.program == "gamv")
+            .filter(|f| {
+                // Directional and multi-variable cases are checked through
+                // `variogram::gamv` in gamv_directional.rs.
+                let p = Params::from_table(&f.case.parameters).unwrap();
+                p.variable_column.is_some()
+                    && p.directions.is_none()
+                    && p.variograms.is_none()
+                    && !p.standardize
+            })
             .collect();
         assert!(!fixtures.is_empty(), "no gamv fixtures found");
         let failures: Vec<String> = fixtures.iter().flat_map(check).collect();
