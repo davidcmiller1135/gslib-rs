@@ -1331,3 +1331,31 @@ From `vendor/gslib-2.0/src/`:
   - A regression test pins the first outputs of the default generator for
     a fixed seed. A dependency update that changed the stream would then be
     caught, not silently change every realization.
+
+## D-037: Realization k uses ChaCha8 stream k of the master seed
+- Status: decided
+- Topic: rng.md (and parallelism.md, P5)
+- Question: How does each realization's stream derive from the one seed the
+  user gives?
+- Options: ChaCha stream k; hash-derived seeds (e.g. SplitMix64 of
+  (master, k)); keep one stream across realizations, like GSLIB.
+- Decision: **realization k (0-based) draws from
+  `ChaCha8Rng::seed_from_u64(master)` with `set_stream(k)`**, ChaCha's own
+  nonce: `rand_chacha` 0.10 documents 2⁶⁴ unique streams per key. Within a
+  realization, draws are taken from that one stream in the algorithm's
+  fixed order.
+- Rationale:
+  - Realization k depends only on (master seed, k). Realization 7 alone
+    equals realization 7 of a batch, and parallel equals sequential (P5;
+    `AGENTS.md`, *Explicit inputs and streams*).
+  - The generator separates the streams itself, so no seed arithmetic is
+    involved and no correlated seeds can arise from it.
+- Consequences:
+  - The CLI's output changes for every realization after the first (the
+    first uses stream 0, today's stream).
+  - A test checks that realization k run alone equals realization k of a
+    batch, for both `sgsim` and `sisim`.
+  - The exact-stream parity mode (question 3) keeps GSLIB's single ACORN
+    stream instead, so it runs realizations sequentially.
+  - The seed-to-stream rule lives in one place (a seed type, question 4),
+    not in each program.
