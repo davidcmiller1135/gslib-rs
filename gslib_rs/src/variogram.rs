@@ -29,6 +29,10 @@ use crate::num::{floor_index, to_f64};
 use crate::sample::Sample;
 use crate::search::Blocks;
 
+mod directional;
+
+pub use directional::{Direction, DirectionWindow, PairOrder, Separation};
+
 /// A way of assigning pair separations to lag classes.
 pub trait LagScheme {
     /// Number of classes.
