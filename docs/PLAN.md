@@ -7,20 +7,19 @@ and findings: `docs/spec/decisions.md`.
 
 ## 1. State at handoff (2026-11-28)
 
-- **Branch `claude/code-review-project-status-orm47m`, PR #4** (open, not
-  merged). It now holds all work to date: the harness (steps 1–8), missing
-  values, search, parallelism, the RNG building blocks and `sgsim`
-  statistical parity.
-- **Local checks:** every check in `AGENTS.md` passes: 260 tests, 38
-  reference fixtures (3.0 MB), decisions D-001…D-040, findings F-001…F-018.
-  **CI has never run** (§2), so none of it is verified on GitHub.
+- **`main` holds all work to date.** PR #4 (the harness, steps 1–8; missing
+  values; search; parallelism; the RNG building blocks; `sgsim` statistical
+  parity) and PR #5 (directional `gamv`, F-027) were merged on 2026-11-28.
+- **Checks are local** (D-053): there is no CI. Every check in `AGENTS.md`
+  passes, with 46 reference fixtures, decisions D-001…D-053 and findings
+  F-001…F-027.
 
 ### Milestones
 
 | # | Milestone | State |
 |---|---|---|
 | M0 | Foundations | done |
-| M1 | Merged and running on GitHub | **blocked on the owner** (§2) |
+| M1 | Merged on GitHub | done (PRs #4 and #5); no CI, by decision (D-053) |
 | M2 | Missing values handled correctly | done (F-011) |
 | M3 | Variograms match GSLIB | `gamv` done on PR #5: directions, every variogram type, several variables, indicators, 17 fixtures (F-027). `gam` and `varmap` remain (no spec yet) |
 | M4 | Kriging matches GSLIB | search (steps 1–5, CLI flags) and point SK/OK done (F-015); block kriging, trend and external drift, cross-validation, `OnSingular` need a spec |
@@ -32,60 +31,29 @@ and findings: `docs/spec/decisions.md`.
 **Specs still to write (grill sessions):** the rest of
 `kt3d`; `.par` files and the compatibility mode; then `declus` and `ik3d`.
 
-**Suggested next steps:** (A) fix CI (owner); (B) review and merge PR #5
-(directional `gamv`), after PR #4; (C) `sisim` parity fixtures, to close M5's most visible
-gap.
+**Suggested next steps:** (A) `sisim` parity fixtures, to close M5's most
+visible gap; (B) the `kt3d` spec (M4); (C) a fixture with a wide dip
+tolerance, to confirm F-024.
 
-## 2. GitHub integration
+## 2. GitHub and checks
 
-What was checked, through the GitHub API, on 2026-11-27:
-
-- **The repository is already public**, so making it public changes
-  nothing. Standard GitHub-hosted runners (`ubuntu-latest`, which is all
-  `ci.yml` uses) are free for public repositories, so this is not a minutes
-  quota either.
-- **Actions is enabled.** Dependabot's update jobs run on GitHub's
-  infrastructure and succeed.
-- **Every `CI` run fails within about 4 s.** Every run checked, on PR #4
-  and on Dependabot's PR #2, fails the same way:
-  - each job has `runner_id: 0`, no runner name and no steps;
-  - job logs return 404, and check runs have no output.
-
-  The workflow never starts on a machine, so the cause is not in
-  `ci.yml`'s steps.
-- **The most likely cause is the account itself, not the repository.** For
-  example, a billing lock (a failed payment or an unpaid invoice locks
-  Actions even for public repositories) or an Actions spending limit or
-  policy. GitHub shows the exact reason only as an annotation in the web UI,
-  which the API does not return.
-
-**Owner actions (only the owner can do these):**
-
-1. Open any failed run, e.g.
-   <https://github.com/davidcmiller1135/gslib-rs/actions/runs/46063147735>,
-   and read the annotation at the top of the summary page.
-2. If it mentions billing or a spending limit: go to *Settings → Billing and
-   plans* (personal account) and resolve the payment or raise the limit.
-   Then re-run the workflow.
-3. If it mentions disallowed actions: go to *Repository Settings → Actions →
-   General* and allow `actions/checkout`, `Swatinem/rust-cache` and `EmbarkStudios/cargo-deny-action` (or all
-   actions).
-4. Once CI is green on PR #4:
-   - add branch protection on `main` (require the CI jobs, require a PR,
-     no force-push);
-   - in *Settings → General → Pull Requests*, allow squash merging only.
-5. Delete the stale branches `master` and `docs/agent-rules`. This session's
-   credentials could not delete them.
-6. Dependabot PR #2 (`actions/checkout` 4 → 7): merge it after CI runs.
-   Check that the `oracle` job still works with the new version.
-
-Until CI runs, every PR description must say which checks were run locally
-and which were not (`AGENTS.md`, *Report honestly*).
+- **There is no CI, by the owner's decision** (D-053, 2026-11-28).
+  `.github/workflows/ci.yml` was removed. Before a change is merged, every
+  check in `AGENTS.md` is run locally, and the PR says which were run and
+  which were not (`AGENTS.md`, *Report honestly*).
+- **Dependabot** still opens weekly crate-update PRs, which run on GitHub's
+  side at no cost. Run the checks locally before merging one. Its GitHub
+  Actions updates were removed along with the workflow, so its PR #2
+  (`actions/checkout`) is obsolete and can be closed.
+- **Owner housekeeping:** delete the merged or stale branches `master`,
+  `docs/agent-rules` and `ccr-af700c64-3iveok`. Agent sessions cannot
+  delete branches.
 
 ## 3. Setting up a new session
 
 - **Toolchain:** pinned in `rust-toolchain.toml` (1.97.0); rustup installs it
-  on first use. The MSRV is 1.89 (CI `msrv` job).
+  on first use. The MSRV is 1.89: check it with `cargo +1.89 test
+  --workspace` (`rustup toolchain install 1.89 --profile minimal` first).
 - **gfortran** is needed only to regenerate fixtures, not to run tests. The
   tests use the committed fixtures. To install it:
 
@@ -117,7 +85,7 @@ and acceptance tests named in it.
 
 | # | Work | Spec | Depends on |
 |---|---|---|---|
-| A2 | CI running and green on PR #4; merge (squash) | §2 above | owner actions |
+| A2 | **Done.** PR #4 merged (2026-11-28). CI dropped (D-053) | §2 above | |
 
 ### Phase B: missing values (every later program reads data through this)
 

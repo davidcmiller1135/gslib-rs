@@ -200,7 +200,7 @@ Once parity is solid:
 - **GPU acceleration** (opt-in, evidence first): only the regular O(N²) pair
   loop is a good fit. Obstacles: slow `f64` on consumer GPUs and none in
   WebGPU, `unsafe`-based CUDA bindings, non-deterministic atomic reductions,
-  and no GPU CI runners. Each kernel must be checked against the CPU result.
+  and no GPU to test on. Each kernel must be checked against the CPU result.
 - **Automatic variogram fitting** (weighted least squares with constraints).
   GSLIB leaves this to the user.
 - **Fast neighbourhoods:** a k-d tree as a third exact `Neighbourhood`, and

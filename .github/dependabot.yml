@@ -1,5 +1,6 @@
-# Weekly update PRs, grouped so they arrive as one PR per ecosystem.
-# CI (pinned toolchain, strict lints, cargo deny) must pass before merging.
+# Weekly crate-update PRs, grouped into one PR. There is no CI (D-053): run
+# the checks in AGENTS.md locally (pinned toolchain, strict lints, cargo deny)
+# before merging.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -11,13 +12,3 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "deps"
-
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
-    commit-message:
-      prefix: "ci"

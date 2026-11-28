@@ -26,7 +26,7 @@ overflow-checks = true
 # Lints
 #
 # This workspace is deliberately much stricter than a typical Rust project.
-# Every group below is *denied*; CI additionally runs with `-D warnings`.
+# Every group below is *denied*; the checks also run clippy with `-D warnings`.
 # Exceptions must be written as `#[expect(lint, reason = "...")]` on the
 # smallest possible item (`allow_attributes` forbids bare `#[allow]`), so each
 # one is documented and fails the build once it stops being needed.

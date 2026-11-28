@@ -88,14 +88,14 @@ letting results depend on the number of threads or the hardware.
   Tests: P1; realization `k` alone equals realization `k` of a batch.
   Depends on the RNG spec.
 - **P6 GPU, if ever** (D-033). Off by default behind a feature. Each GPU kernel is
-  checked against the CPU result within a documented tolerance, has a CI job
-  on GPU hardware, and comes with benchmark evidence that it beats the
+  checked against the CPU result within a documented tolerance, has a check
+  that runs on GPU hardware, and comes with benchmark evidence that it beats the
   parallel CPU path.
 
 ## Implementation plan
 
 Each step is one reviewable PR; the checks in `AGENTS.md` must pass, and
-CI gains a `--features parallel` build where it is not already covered by
+they gain a `--features parallel` build where it is not already covered by
 feature unification (D-030).
 
 1. **Parallel kriging over targets** (done: `rayon` 1.12 passes `cargo deny`;

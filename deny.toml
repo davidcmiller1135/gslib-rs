@@ -1,4 +1,4 @@
-# cargo-deny policy: run `cargo deny check` (CI does).
+# cargo-deny policy: run `cargo deny check` (one of the local checks).
 
 [graph]
 all-features = true

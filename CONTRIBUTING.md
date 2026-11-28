@@ -8,7 +8,8 @@ and agents alike. This file covers the mechanics.
 
 - `main` is the only long-lived branch. It is always releasable.
 - Work on a short-lived branch, open a pull request into `main`, and merge
-  once CI is green.
+  once every check below passes locally. There is no CI (D-053); the PR
+  says which checks were run.
 - **Squash-merge** pull requests so `main` has one commit per change, and
   delete the branch afterwards.
 - Write PR titles (the squashed commit's subject) in the imperative, with an
@@ -16,24 +17,27 @@ and agents alike. This file covers the mechanics.
 
 ## Checks
 
-CI runs all of these; run them locally first:
+There is no CI. Run all of these locally before merging (the same list as
+`AGENTS.md`):
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p gslib_rs --all-targets --no-default-features -- -D warnings
 cargo test --workspace
-cargo doc --workspace --no-deps
-cargo deny check
+cargo test -p gslib_rs --no-default-features
+cargo +1.89 test --workspace       # MSRV (rust-version in Cargo.toml)
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo deny check                   # cargo install cargo-deny --locked
 cargo xtask oracle verify-source   # vendored GSLIB 2.0 is untouched
 cargo xtask gen-data --check       # synthetic data suites match their generator
-cargo xtask oracle build           # optional: builds the Fortran reference (needs gfortran)
+cargo xtask oracle build           # builds the Fortran reference (needs gfortran)
 ```
 
 The toolchain is pinned in `rust-toolchain.toml`. To upgrade it, bump the
 version there, fix any new lints, and do it in its own PR. The minimum
-supported Rust version (`rust-version` in `Cargo.toml`) is tested separately
-in CI.
+supported Rust version (`rust-version` in `Cargo.toml`) is checked with
+`cargo +1.89 test --workspace`, above.
 
 ## Code standards
 
@@ -48,6 +52,7 @@ in CI.
 
 ## Dependencies
 
-Dependabot opens grouped weekly PRs for crates and GitHub Actions. New
+Dependabot opens a grouped weekly PR for crate updates; run the checks
+locally before merging it. New
 dependencies must pass `cargo deny check`: permissive licences only, no
 known advisories, crates.io only.
