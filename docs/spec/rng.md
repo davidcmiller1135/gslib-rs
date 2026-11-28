@@ -35,11 +35,12 @@ reproducible from their seed and independent of thread count.
 
 ## Decisions so far
 
-None yet.
+- **Generator** (D-036): ChaCha8 by default; ACORN as an opt-in
+  `rand::RngCore` for exact-stream parity.
 
 ## Open questions (in dependency order)
 
-1. The default generator.
+1. ~~The default generator~~ (D-036).
 2. How realization streams derive from one seed.
 3. What exact stream parity covers, and when it is built.
 4. Seed type and validation.

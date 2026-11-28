@@ -1306,3 +1306,28 @@ From `vendor/gslib-2.0/src/`:
   
   A single stream runs through all realizations, so realization *k*
   depends on every earlier one.
+
+## D-036: The default generator is ChaCha8; ACORN is opt-in
+- Status: decided
+- Topic: rng.md
+- Question: Which generator do stochastic programs use by default
+  (statistical parity)?
+- Options: ChaCha8 by default with ACORN opt-in; ACORN by default; another
+  modern generator (PCG64, Xoshiro256++).
+- Decision: **ChaCha8 (`rand_chacha::ChaCha8Rng`) by default.** ACORN
+  (F-016) is a named generator implementing `rand::RngCore`, used by the
+  opt-in exact-stream parity mode.
+- Rationale:
+  - ChaCha8 is a modern counter-based generator with independent streams
+    per key, which per-realization seeding needs (question 2).
+  - ACORN is an old lagged-sum design with 30-bit outputs whose quality
+    against modern test suites this repository has not checked. It is kept
+    for what it is needed for: reproducing GSLIB's streams.
+  - Random-number generation is not the bottleneck next to kriging solves,
+    so a faster generator would not repay a new dependency.
+- Consequences:
+  - The library keeps taking `&mut impl rand::Rng`, so callers can supply
+    either generator.
+  - A regression test pins the first outputs of the default generator for
+    a fixed seed. A dependency update that changed the stream would then be
+    caught, not silently change every realization.
