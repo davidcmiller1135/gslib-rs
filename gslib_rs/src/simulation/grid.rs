@@ -28,6 +28,19 @@ impl Axis {
     fn cell(&self, x: f64) -> Option<usize> {
         floor_index((x - self.first_center) / self.spacing + 0.5).filter(|&i| i < self.count)
     }
+
+    /// The nearest cell, clamped to the axis, and whether `x` lies in it
+    /// (GSLIB `getindx` and its `inflag`).
+    fn clamped(&self, x: f64) -> (usize, bool) {
+        let last = self.count.saturating_sub(1);
+        match self.cell(x) {
+            Some(i) => (i, true),
+            // Below the first cell's lower edge (or NaN) clamps to 0, above
+            // the last cell's upper edge to the last.
+            None if x > self.first_center => (last, false),
+            None => (0, false),
+        }
+    }
 }
 
 /// A regular 3-D grid. Nodes are ordered x fastest, then y, then z, as in
@@ -129,6 +142,16 @@ impl Grid {
     pub fn node(&self, index: usize) -> Point3 {
         let [ix, iy, iz] = self.cell_of(index);
         Point3::new(self.x.center(ix), self.y.center(iy), self.z.center(iz))
+    }
+
+    /// The cell `(ix, iy, iz)` nearest to `p`, clamped to the grid, and
+    /// whether `p` lies inside it (GSLIB `getindx` on each axis).
+    #[must_use]
+    pub fn clamped_cell(&self, p: Point3) -> ([usize; 3], bool) {
+        let (ix, x_in) = self.x.clamped(p.x);
+        let (iy, y_in) = self.y.clamped(p.y);
+        let (iz, z_in) = self.z.clamped(p.z);
+        ([ix, iy, iz], x_in && y_in && z_in)
     }
 
     /// Index of the node whose cell contains `p`, or `None` outside the grid.

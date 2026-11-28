@@ -1,6 +1,6 @@
 # Spec: Search neighbourhoods
 
-Status: **specified** (decisions D-024 to D-028; evidence F-012, F-013).
+Status: **implemented** (decisions D-024 to D-028; evidence F-012, F-013, F-015). Plan steps 1–6 done; CLI flags for the search options remain.
 
 ## Purpose
 
@@ -190,11 +190,18 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
      `Grid`; `sgsim` moves from a node list to a `Grid`.
    - Tests: S8–S10.
    - Depends on 1.
-5. **Two-part search.**
+5. **Two-part search** (done: `search::assign_to_nodes` with `OnSharedNode`
+   and `OutsideGrid`; `sgsim` and `sisim` take
+   `DataConditioning::{Search, AssignToNodes}`, where held data are
+   informed nodes and never simulated. Tests: S11 and S12, including the
+   exact tie, every face, and cell edges; held data conditioning their
+   neighbours; 6 of 6 planted bugs caught. The CLI does not expose it yet).
    - Work: assigning data to nodes with `OnSharedNode` and `OutsideGrid`.
    - Tests: S11, S12.
    - Depends on 4.
-6. **Records.**
+6. **Records** (done as each step landed: ROADMAP §2 rows for the tie order,
+   the node-search extent and order, the two-part policies and the
+   `picksup` miss; the search row of ROADMAP §1).
    - ROADMAP §2 rows: tie order (D-024); `sgsim`'s node-search extent and
      the two-part-search policies (F-013, D-028); and the `picksup` row if
      step 3 confirms it.

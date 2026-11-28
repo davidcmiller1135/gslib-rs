@@ -21,7 +21,7 @@ use gslib_rs::parallel::{experimental_variogram, try_map};
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
 use gslib_rs::search::{DataSearch, NodeSearch, SearchEllipsoid, SuperBlock, TableExtent};
-use gslib_rs::simulation::{Axis, Grid, Searches, sgsim, sisim};
+use gslib_rs::simulation::{Axis, DataConditioning, Grid, Searches, sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::LagClasses;
 use missing::MissingArgs;
@@ -486,7 +486,7 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
     let search = args.search.search()?;
     let nodes = args.grid.node_search(&grid, &search, &model)?;
     let searches = Searches {
-        data: &search,
+        data: DataConditioning::Search(&search),
         nodes: &nodes,
     };
     let table = grid_table(data_file.title(), &grid)?;
@@ -520,7 +520,7 @@ fn simulate_indicator(args: &SisimArgs) -> AppResult {
     let search = args.search.search()?;
     let nodes = args.grid.node_search(&grid, &search, &model)?;
     let searches = Searches {
-        data: &search,
+        data: DataConditioning::Search(&search),
         nodes: &nodes,
     };
     let table = grid_table(data_file.title(), &grid)?;

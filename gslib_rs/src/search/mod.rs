@@ -35,7 +35,7 @@ use std::num::NonZeroUsize;
 
 pub mod nodes;
 
-pub use nodes::{NodeSearch, TableExtent};
+pub use nodes::{NodeSearch, OnSharedNode, OutsideGrid, TableExtent, assign_to_nodes};
 
 use crate::error::{Error, Result};
 use crate::geometry::{Angles, Anisotropy, Point3, Ranges};

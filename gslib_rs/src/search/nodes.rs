@@ -30,6 +30,7 @@ use crate::error::{Error, Result};
 use crate::geometry::Point3;
 use crate::model::CovarianceModel;
 use crate::num::{floor_index, to_f64};
+use crate::sample::Sample;
 use crate::simulation::Grid;
 
 use super::SearchEllipsoid;
@@ -262,6 +263,99 @@ pub const fn node_octant([dx, dy, dz]: [i64; 3]) -> u8 {
         4
     };
     if dz > 0 { quadrant } else { quadrant + 4 }
+}
+
+/// What assigning data to nodes does when two data share a node (S11,
+/// D-028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnSharedNode {
+    /// Fail, naming both data and the node.
+    #[default]
+    Error,
+    /// GSLIB's rule (`SGSIM.FOR` lines 869–881): keep the datum with the
+    /// smaller L1 distance to the node; on an exact tie the later datum
+    /// wins. The other datum is dropped from the simulation.
+    KeepClosest,
+}
+
+/// What assigning data to nodes does with a datum outside the grid (S12,
+/// F-013).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutsideGrid {
+    /// Fail, naming the datum.
+    #[default]
+    Error,
+    /// GSLIB's behaviour: `getindx` clamps each index to the grid, so the
+    /// datum goes to the nearest edge node, however far away it lies.
+    ClampToEdge,
+}
+
+/// The two-part search's first step (GSLIB `sgsim` with `sstrat = 1`):
+/// move each datum to its nearest node. Returns, per node (x fastest), the
+/// row of the datum it holds.
+///
+/// A datum's node is the one whose cell contains it (GSLIB's `getindx` per
+/// axis). Data are taken in row order.
+///
+/// # Errors
+/// [`Error::InvalidInput`], naming the rows and node, when two data share a
+/// node under [`OnSharedNode::Error`], or a datum lies outside the grid
+/// under [`OutsideGrid::Error`].
+pub fn assign_to_nodes(
+    data: &[Sample],
+    grid: &Grid,
+    shared: OnSharedNode,
+    outside: OutsideGrid,
+) -> Result<Vec<Option<usize>>> {
+    let mut held: Vec<Option<usize>> = vec![None; grid.len()];
+    for (row, d) in data.iter().enumerate() {
+        let (cell, inside) = grid.clamped_cell(d.location());
+        if !inside && outside == OutsideGrid::Error {
+            return Err(Error::invalid(
+                "data on the grid",
+                format!(
+                    "datum {} at {:?} lies outside the simulation grid",
+                    row + 1,
+                    d.location()
+                ),
+            ));
+        }
+        let Some(node) = grid.index_of(cell) else {
+            continue;
+        };
+        let Some(slot) = held.get_mut(node) else {
+            continue;
+        };
+        match (*slot, shared) {
+            (None, _) => *slot = Some(row),
+            (Some(earlier), OnSharedNode::Error) => {
+                return Err(Error::invalid(
+                    "data on the grid",
+                    format!(
+                        "data {} and {} both fall on node {} at {:?}",
+                        earlier + 1,
+                        row + 1,
+                        node + 1,
+                        grid.node(node)
+                    ),
+                ));
+            }
+            (Some(earlier), OnSharedNode::KeepClosest) => {
+                let at = grid.node(node);
+                let l1 = |r: usize| {
+                    data.get(r).map_or(f64::INFINITY, |s| {
+                        let [dx, dy, dz] = s.location().delta(at);
+                        dx.abs() + dy.abs() + dz.abs()
+                    })
+                };
+                // GSLIB: `if(test.le.test2) sim(ind) = real(id)`.
+                if l1(row) <= l1(earlier) {
+                    *slot = Some(row);
+                }
+            }
+        }
+    }
+    Ok(held)
 }
 
 #[cfg(test)]
@@ -532,5 +626,83 @@ mod tests {
             got.iter().all(|&i| [1, 3, 5, 7].contains(&i)),
             "edge neighbours first: {got:?}"
         );
+    }
+
+    fn datum(x: f64, y: f64, v: f64) -> Sample {
+        Sample::new(Point3::new(x, y, 0.0), v).unwrap()
+    }
+
+    #[test]
+    fn data_go_to_their_nearest_nodes() {
+        // Nodes at 0.5, 1.5, 2.5 on x and y.
+        let g = grid([3, 3, 1], [1.0, 1.0, 1.0]);
+        let data = [datum(0.6, 0.4, 1.0), datum(2.4, 1.6, 2.0)];
+        let held = assign_to_nodes(&data, &g, OnSharedNode::Error, OutsideGrid::Error).unwrap();
+        assert_eq!(held[0], Some(0));
+        assert_eq!(held[2 + 3], Some(1), "node (2, 1)");
+        assert_eq!(held.iter().flatten().count(), 2);
+    }
+
+    #[test]
+    fn shared_nodes_are_errors_or_keep_the_closest() {
+        // S11: two data in node (1, 1)'s cell, the second closer.
+        let g = grid([3, 3, 1], [1.0, 1.0, 1.0]);
+        let data = [datum(1.2, 1.9, 1.0), datum(1.4, 1.5, 2.0)];
+        let err = assign_to_nodes(&data, &g, OnSharedNode::Error, OutsideGrid::Error).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("data 1 and 2") && message.contains("node 5"),
+            "{message}"
+        );
+        let held =
+            assign_to_nodes(&data, &g, OnSharedNode::KeepClosest, OutsideGrid::Error).unwrap();
+        assert_eq!(held[4], Some(1), "the closer, later datum");
+        // The closer first: kept.
+        let swapped = [data[1], data[0]];
+        let first_closer =
+            assign_to_nodes(&swapped, &g, OnSharedNode::KeepClosest, OutsideGrid::Error).unwrap();
+        assert_eq!(first_closer[4], Some(0), "the closer, earlier datum");
+        // An exact tie: the later wins (test.le.test2).
+        let tie = [datum(1.25, 1.5, 1.0), datum(1.75, 1.5, 2.0)];
+        let tied =
+            assign_to_nodes(&tie, &g, OnSharedNode::KeepClosest, OutsideGrid::Error).unwrap();
+        assert_eq!(tied[4], Some(1), "later datum on a tie");
+    }
+
+    #[test]
+    fn data_outside_the_grid_are_errors_or_clamped() {
+        // S12: one datum beyond each face, cells (0..3) x (0..3) spanning
+        // [0, 3] on each axis.
+        let g = grid([3, 3, 1], [1.0, 1.0, 1.0]);
+        let cases = [
+            (datum(-0.2, 1.5, 1.0), 3),  // x below: node (0, 1)
+            (datum(3.7, 1.5, 1.0), 5),   // x above: node (2, 1)
+            (datum(1.5, -40.0, 1.0), 1), // y below: node (1, 0)
+            (datum(1.5, 3.1, 1.0), 7),   // y above: node (1, 2)
+        ];
+        for (d, node) in cases {
+            let err =
+                assign_to_nodes(&[d], &g, OnSharedNode::Error, OutsideGrid::Error).unwrap_err();
+            assert!(err.to_string().contains("datum 1"), "{err}");
+            let held =
+                assign_to_nodes(&[d], &g, OnSharedNode::Error, OutsideGrid::ClampToEdge).unwrap();
+            assert_eq!(held[node], Some(0), "{d:?} clamps to node {node}");
+        }
+        // z faces, on a 1 x 1 x 3 column.
+        let column = grid([1, 1, 3], [1.0, 1.0, 1.0]);
+        for (z, node) in [(-1.0, 0), (9.0, 2)] {
+            let d = Sample::new(Point3::new(0.5, 0.5, z), 1.0).unwrap();
+            assert!(
+                assign_to_nodes(&[d], &column, OnSharedNode::Error, OutsideGrid::Error).is_err()
+            );
+            let held =
+                assign_to_nodes(&[d], &column, OnSharedNode::Error, OutsideGrid::ClampToEdge)
+                    .unwrap();
+            assert_eq!(held[node], Some(0));
+        }
+        // Exactly on the outer edge of the first and last cells: inside, as
+        // getindx's int(v + 1.5) gives.
+        let edges = [datum(0.0, 0.0, 1.0), datum(2.9999, 2.9999, 2.0)];
+        assert!(assign_to_nodes(&edges, &g, OnSharedNode::Error, OutsideGrid::Error).is_ok());
     }
 }

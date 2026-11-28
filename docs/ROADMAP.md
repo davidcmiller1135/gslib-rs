@@ -45,7 +45,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}` (with weights: `*_solution`), `krige` CLI; point SK/OK parity fixtures with search and weights (F-015) | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
-| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock, NodeSearch}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block, `sgsim`'s node search; `kt3d` parity fixtures (F-015) (`docs/spec/search.md` steps 1–4) | two-part search (data moved to nodes); CLI flags for anisotropy, octants and `ndmin` |
+| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock, NodeSearch}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block, `sgsim`'s node search; `kt3d` parity fixtures (F-015) and the two-part search (`assign_to_nodes`, `DataConditioning::AssignToNodes`) (`docs/spec/search.md` steps 1–5) | CLI flags for anisotropy, octants, `ndmin` and the two-part search |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
 
@@ -108,6 +108,8 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Simple kriging with one datum (kt3d) | returns the datum and the OK variance 2(C(0) − C(h)) (F-014) | true SK: m + (C(h)/C(0))(v − m), variance C(0) − C(h)²/C(0) | none (a defect) |
 | Node-search extent (`sgsim`) | the covariance table is capped at ±35 nodes in x and y and 0 in z (`MAXCTX = MAXCTY = 71`, `MAXCTZ = 1`), so nodes inside the radius beyond the cap, and every node above or below, are silently ignored (F-013) | the whole search ellipsoid (S10) | `TableExtent::Gslib { max }` |
 | Node-search order (`sgsim`) | unstable sort by `−C(h) + 10⁻¹⁰·q(h)` (F-012) | decreasing `C(h)`, then `q(h)`, then offset index: a total order (D-026) | GSLIB's order: deferred to the exact-stream parity spec |
+| Two data on one node (`sgsim`, `sstrat = 1`) | keeps the datum closer to the node (L1; the later on a tie) and drops the other, with only a debug-file warning (D-028) | error naming both data and the node | `OnSharedNode::KeepClosest` |
+| Data outside the grid (`sgsim`, `sstrat = 1`) | `getindx` clamps the datum to the edge node, however far away (F-013) | error naming the datum | `OutsideGrid::ClampToEdge` |
 | Order of equidistant search data | unstable quicksort over super-block order (F-012) | by distance, then input row (D-024) | GSLIB's order: deferred to the exact-stream parity spec |
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
