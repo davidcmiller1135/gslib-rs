@@ -50,9 +50,9 @@ letting results depend on the number of threads or the hardware.
   the algorithm, not the thread count. Each block sums sequentially, and
   the partial sums are combined in block order. The sequential path uses the
   same blocks, so both agree bit for bit.
-- **Pruning** (D-032): always on. Each row's partners come from a
-  super-block search within the lag scheme's largest distance, widened by a
-  small margin, and the lag scheme still decides each pair.
+- **Pruning** (D-032, D-034): always on. Each row's partners come from the
+  super-block grid within the lag scheme's largest distance, widened by a
+  small margin, in block order; the lag scheme still decides each pair.
 - **GPU** (D-033): not now. It is an opt-in extension, pursued only with
   benchmark evidence after the parallel CPU paths exist.
 
@@ -124,11 +124,10 @@ feature unification (D-030).
        at 1 000 cases; the cut-off pair; several blocks on a lattice);
      - `gamv` fixtures unchanged (worst γ 6.3e-16);
      - the library tests caught all 5 planted bugs.
-   - Timing (release, 20 000 scattered data, GSLIB lags to 5% of the
-     domain): 1.29 s for all pairs, 0.24 s pruned, about 5.4×. Most of the
-     remaining cost is sorting each row's partners by distance (the D-024
-     order that D-032 fixed). A cheaper fixed order, such as block order,
-     would be a numerical change needing a decision.
+   - Timing: first committed with partners in distance order, then
+     switched to block order after a benchmark (D-034). On 20 000 scattered
+     data, release build: 0.98 s for all pairs against 0.07 s with lags to
+     5% of the domain; 1.60 s against 0.99 s with lags to 20%.
    - Work: `LagScheme` gains its largest separation; the pair loop finds
      partners through the super-block, in D-031's fixed blocks of rows.
    - Tests: P4 as a property test over random data and both lag schemes

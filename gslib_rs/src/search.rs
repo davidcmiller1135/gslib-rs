@@ -388,6 +388,48 @@ impl Blocks {
 }
 
 impl Blocks {
+    /// Call `visit(row, location)` for every location within Euclidean
+    /// `radius` of `target` (inclusive), in block order: blocks in linear
+    /// order, rows ascending within a block. No sorting, no allocation
+    /// (D-034: the variogram's pair enumeration).
+    pub(crate) fn visit_within(
+        &self,
+        target: Point3,
+        radius: f64,
+        mut visit: impl FnMut(usize, Point3),
+    ) {
+        let t = coords(target);
+        let limit = radius * radius;
+        let reach = radius * (1.0 + BOUND_MARGIN);
+        let [i0, j0, k0] = self.cell(t.map(|x| x - reach));
+        let [i1, j1, k1] = self.cell(t.map(|x| x + reach));
+        for k in k0..=k1 {
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    let b = Self::linear([i, j, k], self.counts);
+                    let Some(&(bmin, bmax)) = self.boxes.get(b) else {
+                        continue;
+                    };
+                    let below = zip3(bmin, t, |m, x| (m - x).max(0.0));
+                    let above = zip3(t, bmax, |x, m| (x - m).max(0.0));
+                    let [g0, g1, g2] = zip3(below, above, f64::max);
+                    let gap = g0.mul_add(g0, g1.mul_add(g1, g2 * g2));
+                    if gap * (1.0 - BOUND_MARGIN) > limit {
+                        continue;
+                    }
+                    for &row in self.block_rows(b) {
+                        if let Some(&p) = self.locations.get(row) {
+                            let [dx, dy, dz] = p.delta(target);
+                            if dx.mul_add(dx, dy.mul_add(dy, dz * dz)) <= limit {
+                                visit(row, p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Every location inside `ellipsoid` around `target`, sorted by
     /// `(squared_distance, row)`: exactly [`BruteForce`]'s result.
     pub(crate) fn candidates(&self, ellipsoid: &SearchEllipsoid, target: Point3) -> Vec<Candidate> {
@@ -1010,6 +1052,38 @@ mod tests {
             );
         }
         assert_eq!(SuperBlock::new(&[]).counts(), [1, 1, 1]);
+    }
+
+    #[test]
+    fn visit_within_is_inclusive_and_in_block_order() {
+        // D-034: every location within the radius, inclusive, visited by
+        // block then by row, each once.
+        let points: Vec<Point3> = (0..60_u32)
+            .map(|i| Point3::new(f64::from(i % 10), f64::from(i.div_euclid(10)), 0.0))
+            .collect();
+        let blocks = Blocks::with_counts(&points, [3, 2, 1]).unwrap();
+        let t = Point3::new(4.0, 2.0, 0.0);
+        let mut visited = Vec::new();
+        blocks.visit_within(t, 3.0, |row, p| visited.push((row, p)));
+        let mut expected: Vec<usize> = (0..points.len())
+            .filter(|&r| points[r].distance(t) <= 3.0)
+            .collect();
+        assert!(expected.contains(&27), "(7, 2) is exactly 3 away");
+        let mut rows: Vec<usize> = visited.iter().map(|&(r, _)| r).collect();
+        // Block order: each block's rows ascend, blocks in linear order.
+        let block_of = |r: usize| blocks.block_of(coords(points[r]));
+        assert!(
+            rows.windows(2)
+                .all(|w| (block_of(w[0]), w[0]) < (block_of(w[1]), w[1])),
+            "{rows:?}"
+        );
+        rows.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(rows, expected);
+        assert!(
+            visited.iter().all(|&(r, p)| points[r] == p),
+            "locations match rows"
+        );
     }
 
     #[test]

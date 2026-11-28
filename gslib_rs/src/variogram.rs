@@ -13,8 +13,9 @@
 //! scheme's [`LagScheme::max_distance`], widened by a relative 1e-9 so no
 //! pair at the cut-off is lost to rounding. The lag scheme still decides
 //! every pair, so exactly the same pairs are counted as by a full loop.
-//! Partners arrive by distance, then row (D-024). Each block sums
-//! sequentially, and block sums are combined in block order.
+//! Partners arrive in block order: grid blocks in linear order, rows
+//! ascending within a block (D-034). Each row block sums sequentially, and
+//! row-block sums are combined in order.
 //!
 //! The block layout and partner order are part of the numerical definition:
 //! the sums are the same for any thread count, and differ from a plain
@@ -26,7 +27,7 @@ use crate::error::{Error, Result};
 use crate::geometry::Point3;
 use crate::num::{floor_index, to_f64};
 use crate::sample::Sample;
-use crate::search::{Blocks, SearchEllipsoid};
+use crate::search::Blocks;
 
 /// A way of assigning pair separations to lag classes.
 pub trait LagScheme {
@@ -250,7 +251,8 @@ pub(crate) struct PairPlan<'a, L: LagScheme + ?Sized> {
     values: &'a [f64],
     lags: &'a L,
     blocks: Blocks,
-    reach: SearchEllipsoid,
+    /// The pruning radius: the scheme's largest separation, widened.
+    reach: f64,
 }
 
 impl<'a, L: LagScheme + ?Sized> PairPlan<'a, L> {
@@ -264,8 +266,12 @@ impl<'a, L: LagScheme + ?Sized> PairPlan<'a, L> {
         );
         // A lag scheme without a usable cut-off is searched without one; the
         // scheme still decides every pair.
-        let reach = SearchEllipsoid::isotropic(lags.max_distance() * (1.0 + PRUNE_MARGIN))
-            .unwrap_or_else(|_| SearchEllipsoid::unlimited());
+        let widened = lags.max_distance() * (1.0 + PRUNE_MARGIN);
+        let reach = if widened > 0.0 {
+            widened
+        } else {
+            f64::INFINITY
+        };
         Self {
             points,
             values,
@@ -280,7 +286,8 @@ impl<'a, L: LagScheme + ?Sized> PairPlan<'a, L> {
         self.points.len().div_ceil(ROWS_PER_BLOCK)
     }
 
-    /// The sums contributed by the pairs whose first row is in block `block`.
+    /// The sums contributed by the pairs whose first row is in block
+    /// `block`. Partners come in block order (D-034).
     pub(crate) fn block_sums(&self, block: usize) -> Vec<LagSums> {
         let mut acc = vec![LagSums::default(); self.lags.len()];
         let start = block.saturating_mul(ROWS_PER_BLOCK);
@@ -289,14 +296,12 @@ impl<'a, L: LagScheme + ?Sized> PairPlan<'a, L> {
             let (Some(&head), Some(&head_value)) = (self.points.get(i), self.values.get(i)) else {
                 continue;
             };
-            for c in self.blocks.candidates(&self.reach, head) {
-                if c.row <= i {
-                    continue;
+            self.blocks.visit_within(head, self.reach, |row, tail| {
+                if row <= i {
+                    return;
                 }
-                let (Some(&tail), Some(&tail_value)) =
-                    (self.points.get(c.row), self.values.get(c.row))
-                else {
-                    continue;
+                let Some(&tail_value) = self.values.get(row) else {
+                    return;
                 };
                 let h = head.distance(tail);
                 let d = head_value - tail_value;
@@ -308,7 +313,7 @@ impl<'a, L: LagScheme + ?Sized> PairPlan<'a, L> {
                         a.pairs += 1;
                     }
                 }
-            }
+            });
         }
         acc
     }

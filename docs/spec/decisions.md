@@ -1130,3 +1130,35 @@ From `vendor/gslib-2.0/src/`:
   
   An `f32` path would need its own spec, since it changes the `f64`
   contract.
+
+## D-034: Variogram partners come in block order (supersedes part of D-032)
+- Status: decided; supersedes D-032's clause "in a fixed order (the
+  search's order, D-024)"
+- Topic: parallelism.md
+- Question: Should the pair enumeration visit each row's partners in
+  distance order (as committed) or in block order?
+- Options: block order; keep distance order.
+- Decision: **block order.** Grid blocks are visited in linear order, rows
+  ascending within a block, with no sorting and no per-row allocation
+  (`Blocks::visit_within`).
+- Rationale (benchmark, release build, 20 000 scattered 2-D data; seconds,
+  medians of 2–3 runs):
+
+  | Lags reach | All pairs | Distance order | Block order |
+  |---|---|---|---|
+  | 5% of the domain | 0.98 | 0.18 | 0.07 |
+  | 20% of the domain | 1.60 | 2.86 | 0.99 |
+
+  Distance order was *slower than no pruning* for long lags, because
+  sorting each row's partners dominates. Block order counts exactly the
+  same pairs, remains deterministic and independent of thread count, and
+  changes γ by 2e-16 to 6e-16 relative (1–3 ulps) against distance order.
+  Nothing released depends on the old bits.
+- Consequences:
+  - The data search keeps D-024's distance order, which kriging needs for
+    nearest-first truncation. Only the variogram's partner enumeration
+    changes.
+  - The block layout of the super-block grid joins D-031's row blocks as
+    part of the variogram's numerical definition.
+  - For lags reaching far, pruning gains little (0.99 s against 1.60 s);
+    parallel blocks (step 3) are the remaining lever.
