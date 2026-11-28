@@ -121,7 +121,7 @@ This project is deliberately stricter than most Rust code:
   There are currently two exceptions in the whole codebase.
 - **Errors:** library functions return `Result` and never panic on bad input.
 - **Toolchain:** pinned in `rust-toolchain.toml` (so new lints arrive only
-  deliberately). The MSRV is 1.89 and is tested in CI.
+  deliberately). The MSRV is 1.89, checked locally (`CONTRIBUTING.md`).
 - **Supply chain:** `cargo deny` checks advisories, licences, duplicate crate
   versions and crate sources.
 - **Tests:** unit, property-based (`proptest`) and end-to-end CLI tests.

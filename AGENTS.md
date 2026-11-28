@@ -126,7 +126,7 @@ Further rules:
   `#[expect(lint, reason = "...")]` on the smallest item. In a hot kernel,
   indexing or casts may be allowed this way only with benchmark evidence;
   otherwise use iterators, `chunks_exact`, `get()`, or `num.rs` conversions.
-- **Never weaken a lint, test, tolerance or CI step to get green.**
+- **Never weaken a lint, test, tolerance or check to get green.**
 - **Justify new crates.** Add a dependency only when needed; it must pass
   `cargo deny check`.
 - **Explicit unresolved questions.** Use `TODO(<context>): <question>` only for
@@ -148,16 +148,21 @@ Further rules:
     validation, discovery;
   - `harness/`: tests-only crate checking gslib-rs against the fixtures;
   - `xtask/`: the reference recipe, e.g. `cargo xtask oracle verify-source`.
-- **Checks** (all run in CI; the toolchain is pinned in `rust-toolchain.toml`):
+- **Checks.** There is no CI (D-053): run every check below locally before
+  a change is merged, and say in the PR which were run. The toolchain is
+  pinned in `rust-toolchain.toml`.
   ```sh
   cargo fmt --all --check
   cargo clippy --workspace --all-targets -- -D warnings
   cargo clippy -p gslib_rs --all-targets --no-default-features -- -D warnings
   cargo test --workspace
-  cargo doc --workspace --no-deps
+  cargo test -p gslib_rs --no-default-features
+  cargo +1.89 test --workspace        # MSRV (rust-version in Cargo.toml)
+  RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
   cargo deny check
   cargo xtask oracle verify-source
   cargo xtask gen-data --check
+  cargo xtask oracle build            # needs gfortran
   ```
 - **GSLIB 2.0 source (the oracle):** `vendor/gslib-2.0/src/`, vendored
   byte-for-byte. **Never modify it**: `MANIFEST.sha256` verifies it, and

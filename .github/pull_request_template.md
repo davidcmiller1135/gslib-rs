@@ -17,5 +17,6 @@ or comparison against Fortran output. -->
 - [ ] `cargo fmt --all --check`
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings`
 - [ ] `cargo test --workspace`
-- [ ] `cargo deny check` (if dependencies changed)
+- [ ] `cargo deny check`
+- [ ] The other local checks in `AGENTS.md` (there is no CI)
 - [ ] Docs and `docs/ROADMAP.md` updated
