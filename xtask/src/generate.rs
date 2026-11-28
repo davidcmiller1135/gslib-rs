@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use oracle_case::{backtr, gamv, nscore, parse_case, sha256_hex, vmodel};
+use oracle_case::{backtr, gamv, kt3d, nscore, parse_case, sha256_hex, vmodel};
 
 use super::{AppResult, BuildOutcome, FLAGS, rewrite};
 
@@ -56,6 +56,14 @@ fn prepare(program: &str, parameters: &toml::Table, inputs: &[String]) -> AppRes
             Ok(Run {
                 par: p.to_par(),
                 outputs: vec![gamv::OUTPUT_FILE],
+            })
+        }
+        "kt3d" => {
+            let p = kt3d::Params::from_table(parameters)?;
+            require_inputs(&[&p.data], inputs)?;
+            Ok(Run {
+                par: p.to_par(),
+                outputs: vec![kt3d::OUTPUT_FILE, kt3d::DEBUG_FILE],
             })
         }
         other => Err(format!("no fixture generator for {other} yet").into()),
@@ -314,8 +322,8 @@ mod tests {
     #[test]
     fn only_known_programs_have_generators() {
         assert!(
-            prepare("kt3d", &toml::Table::new(), &[]).is_err(),
-            "kt3d has no generator yet"
+            prepare("sgsim", &toml::Table::new(), &[]).is_err(),
+            "sgsim has no generator yet"
         );
         let t: toml::Table = "data = \"a.dat\"\nvariable_column = 4".parse().unwrap();
         assert!(
