@@ -13,8 +13,8 @@ and findings: `docs/spec/decisions.md`.
   including the fixture parity tests, plus `cargo xtask oracle
   verify-source`, `cargo xtask gen-data --check` and `cargo xtask oracle
   status`.
-- **Fixtures:** 25 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
-  backtr 1, gamv 9). All were made by the current recipe, and regenerating
+- **Fixtures:** 34 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
+  backtr 1, gamv 9, kt3d 9). All were made by the current recipe, and regenerating
   them gives byte-identical GSLIB outputs.
 - **Specs:**
 
@@ -125,8 +125,8 @@ and acceptance tests named in it.
 | # | Work | Spec | Depends on |
 |---|---|---|---|
 | C1 | **Spec first:** directional `gamv` (azimuth/dip, angular tolerances, bandwidths) and the other nine variogram types. Decide which types are in scope, how `ivtype` maps to a Rust type, and how the cross-variable inputs are shaped. Then fixtures. | new `docs/spec/gamv.md` | A2 (B4 for trimmed cases) |
-| C2 | **Spec done** (`docs/spec/search.md`, D-024…D-028); **steps 1–2 done.** Search neighbourhood: data search with brute force and an exact super-block, `kt3d` debug fixtures, `sgsim` node search and two-part search (plan steps 1–6) | `docs/spec/search.md` | A2 |
-| C3 | `kt3d` harness step 7: simple and ordinary kriging at points with a search covering every datum; calibrate k in k·cond(A)·ε (D-010) | `harness.md` step 7 | C2 for the search, B1 for data |
+| C2 | **Spec done** (`docs/spec/search.md`, D-024…D-028); **steps 1–3 done.** Search neighbourhood: data search with brute force and an exact super-block, `kt3d` debug fixtures, `sgsim` node search and two-part search (plan steps 1–6) | `docs/spec/search.md` | A2 |
+| C3 | **Done** (F-015, D-035): `kt3d` harness step 7, simple and ordinary point kriging, with the search checked through `kt3d`'s debug output; the `picksup` miss confirmed | `harness.md` step 7 | — |
 | C4 | **Spec first:** `kt3d` completeness (block discretisation, trend/KT, external drift, cross-validation, gridded output, `OnSingular` policy and its UNEST code, ledger item "unsolvable systems are skipped") | new `docs/spec/kt3d.md` | C3 |
 | C5 | **Spec first:** ACORN and exact-stream parity as an opt-in. Decides the RNG trait, the `Seed` type, the random path and the per-realization seed derivation. | new `docs/spec/rng.md` | A2 |
 | C6 | `sgsim` harness step 8: statistical parity, N = 100 realizations, R8 statistics, fixture < 2 MB. Also adds the covariance lookup table and spiral search. | `harness.md` step 8; needs C2, C5 | C2, C5 |

@@ -44,7 +44,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
-| `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}`, `krige` CLI | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
+| `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}` (with weights: `*_solution`), `krige` CLI; point SK/OK parity fixtures with search and weights (F-015) | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
 | search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block (`docs/spec/search.md` steps 1–2) | `sgsim`'s node search and two-part search; CLI flags for anisotropy, octants and `ndmin`; parity fixtures through `kt3d` |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
@@ -103,6 +103,9 @@ behaviour in this table are recalled from memory until checked off in §6.
 | RNG | ACORN, global state | caller-supplied `rand::Rng` (CLI: ChaCha8) | ACORN as an `Rng`, for exact-stream parity |
 | Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a |
 | Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
+| Super-block selection misses data (kt3d) | `picksup` tests 27 lattice points between blocks, so a thin rotated search ellipsoid can reach into a skipped block: data inside the ellipsoid are ignored (F-012, confirmed in F-015) | exact block bound, never skips an in-range datum (D-025) | none (a defect) |
+| Ordinary kriging with one datum (kt3d) | UNEST, since OK's unbiasedness counts as a drift term (`1 ≤ na ≤ mdt = 1`, F-014) | estimates with weight 1, variance 2γ(h) | possible legacy policy |
+| Simple kriging with one datum (kt3d) | returns the datum and the OK variance 2(C(0) − C(h)) (F-014) | true SK: m + (C(h)/C(0))(v − m), variance C(0) − C(h)²/C(0) | none (a defect) |
 | Order of equidistant search data | unstable quicksort over super-block order (F-012) | by distance, then input row (D-024) | GSLIB's order: deferred to the exact-stream parity spec |
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
@@ -230,9 +233,9 @@ reference run, and say which.
 - [x] Search parameter names (`ndmax`, `nodmax`, `radius`): `ndmin, ndmax`,
   `noct`, `radius radius1 radius2`, `sang1..3` in `KT3D.FOR`; `nodmax`,
   `sstrat` in `SGSIM.FOR`. F-012.
-- [ ] GSLIB's super-block selection (`picksup`) can miss data inside the
-  search ellipsoid under a rotated anisotropic search: probe in F-012,
-  fixture in `docs/spec/search.md` step 3.
+- [x] GSLIB's super-block selection (`picksup`) can miss data inside the
+  search ellipsoid under a rotated anisotropic search: confirmed by the
+  `kt3d/picksup_probe` fixture (150 of 1 764 nodes). F-015.
 - [ ] `sasim` schedule parameters (`t0, redfac, ka, k, num, Omin`) and
   objective normalisation by initial values: `simulation/sasim.rs`
 - [x] `gamv` lag definition: centres `(il−2)·xlag`, inclusive `±xltol`

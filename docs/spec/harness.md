@@ -160,7 +160,8 @@ step weakens a lint or tolerance.
      `variogram`, with their own unit tests; then the `.par` generator and an
      output reader.
    - Cases: omnidirectional only at this stage.
-7. **kt3d.**
+7. **kt3d** (done for simple and ordinary point kriging: nine fixtures,
+   F-015; k calibrated to 100, D-035).
    - Cases: simple and ordinary kriging at points, with a search covering
      every datum; well- and ill-conditioned configurations.
    - Then a decision entry calibrating k in k·cond(A)·ε (D-010).

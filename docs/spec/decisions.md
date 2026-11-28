@@ -842,8 +842,8 @@ From `vendor/gslib-2.0/src/`:
   anisotropic metric the true minimum can lie elsewhere on a face. The probe
   `docs/spec/probes/picksup.py` finds offsets where the true minimum distance
   is 21.2 but the lattice minimum is 25.6, against a radius of 25 (azimuth
-  20°, ratio 0.2, blocks of 10). **Hypothesis, `TODO(parity-verify)`:** GSLIB
-  can miss data inside the search ellipsoid; a fixture must confirm it.
+  20°, ratio 0.2, blocks of 10). **Confirmed by fixture** (F-015): GSLIB
+  misses data inside its own search ellipsoid.
 - **Debug output as an oracle:** `kt3d` with `idbg ≥ 2` writes, per
   estimate, the data used, in order, with their weights (`5f12.3`, lines
   993–1006).
@@ -1162,3 +1162,116 @@ From `vendor/gslib-2.0/src/`:
     part of the variogram's numerical definition.
   - For lags reaching far, pruning gains little (0.99 s against 1.60 s);
     parallel blocks (step 3) are the remaining lever.
+
+## Finding F-014: kt3d's point kriging (survey, 2026-11-28)
+From `vendor/gslib-2.0/src/KT3D/KT3D.FOR`, grid mode (`koption = 0`),
+point kriging (`nxdis = nydis = nzdis = 1`), simple (`ktype = 0`) and
+ordinary (`ktype = 1`) kriging:
+
+- **Data:**
+  - a record is kept iff `tmin ≤ v < tmax` (half-open, as D-019);
+  - a coordinate column of 0 means the grid origin (`xmn`), not 0 as in
+    `gamv` (lines 280–296).
+- **Targets:** node `(ix, iy, iz)` at `xmn + (ix−1)·xsiz` etc., x fastest.
+  Coordinates are shifted to `x − xloc + 0.5·xsiz` before kriging, for
+  conditioning only; the point being estimated is the node.
+- **Search:** `srchsupr`, then the first `ndmax` accepted candidates
+  (F-012). Fewer than `ndmin`: `UNEST = −999` for both estimate and
+  variance. The super-block grid is built from the *estimation* grid
+  (`setsupr`), so data outside the grid fall into edge blocks.
+- **System:**
+  - covariances from `cova3`, where `h < EPSLON` gives `C(0)` including the
+    nugget;
+  - for OK, the unbiasedness row and column hold `unbias = C(0)` instead
+    of 1, and the right-hand side holds `unbias`. The weights are
+    unchanged; the Lagrange multiplier is scaled by `unbias`;
+  - solved by `ktsol` (Gaussian elimination). A singular system gives
+    `UNEST`.
+- **Results:**
+  - SK: `est = skmean + Σ sᵢ (vᵢ − skmean)`;
+  - OK: `est = Σ sᵢ vᵢ`;
+  - variance for both: `estv = cbb − Σ sⱼ rⱼ`, with `cbb = C(0)` for a
+    point. It is not clamped, so it can be slightly negative.
+- **Too few data for the drift terms (lines 707–716):** a location with
+  `1 ≤ na ≤ mdt` is UNEST, where `mdt` counts OK's unbiasedness term as a
+  drift term: `mdt = 1` for OK, `0` for SK. **So OK with exactly one datum
+  is UNEST in GSLIB whatever `ndmin` says**, whereas gslib-rs estimates it
+  (weight 1, variance `2γ(h)`). Found by the `picksup_probe` fixture, which
+  first predicted single-datum OK estimates (correction to this finding's
+  first draft).
+- **One datum under SK (`na = 1`, lines 727–758):** no system is solved;
+  `est = v₁` and `estv = cbb − 2·C(h) + C(0)`. **This is a defect:** simple
+  kriging with one datum gives `skmean + (C(h)/C(0))·(v₁ − skmean)`, with
+  variance `C(0) − C(h)²/C(0)`. It is checked against GSLIB as an exact
+  relation and documented as a divergence (ROADMAP §2).
+- **Output:**
+  - `kt3d.out`: a Geo-EAS header, then `est estv` per node, x fastest
+    (`'(f9.3,1x,f9.3)'`, widened by the recipe);
+  - `kt3d.dbg` at `idbg ≥ 2`: for every node where a system was solved
+    (not for one datum, and not for UNEST), a `BLOCK:` line, the Lagrange
+    multiplier for OK, then one `x y z v weight` line per datum in search
+    order (`'(5f12.3)'`, widened), then `estimate, variance`. Coordinates
+    are recovered as `xa + xloc − 0.5·xsiz`, so they can differ from the
+    data file by rounding.
+
+## Finding F-015: kt3d parity for the search and point kriging (2026-11-28)
+Nine `kt3d` fixtures (search spec step 3, harness step 7), compared node by
+node (`harness/tests/kt3d.rs`):
+
+- **Search:** at every node of every fixture, GSLIB's selection (from
+  `kt3d.dbg`) equals gslib-rs's `DataSearch` restricted to the super-blocks
+  that a port of `setsupr`/`getindx`/`picksup` lets GSLIB examine. This
+  covers 1 764 + 8 × 64 nodes:
+  - isotropic and rotated anisotropic ellipsoids;
+  - an octant search whose `ndmax` cut binds;
+  - too few data (UNEST);
+  - ties at the cut (`ties_at_cut`: GSLIB chose other tied corners at all
+    60 nodes, each a valid choice under D-024).
+- **F-012 confirmed:** in `picksup_probe` (search radius 30, minor radius 3,
+  azimuth 20, 2 × 2 nodes per super-block), at 150 of 1 764 nodes GSLIB
+  skips data that lie inside its search ellipsoid. For example, node
+  (2.5, 2.5) is UNEST although datum 34 at (7.6311, 21.6522) lies at 0.875
+  of the radius: `picksup`'s 27 lattice points all lie outside the thin
+  ellipsoid. gslib-rs's exact bound (D-025) finds such data.
+- **OK with one datum is UNEST in GSLIB** (F-014, corrected). Seen at 274
+  nodes of `picksup_probe`.
+- **SK with one datum:** GSLIB's shortcut (`est = v`, `estv = 2(C(0) −
+  C(h))`) holds exactly at all 12 such nodes of `sk_single_datum`.
+- **Kriging:** gslib-rs, kriging GSLIB's own selection in GSLIB's order,
+  reproduces GSLIB's estimates, variances, weights and Lagrange multipliers.
+  The worst `|Δ| / (cond(A)·ε·scale)` is 10.4 (an SK estimate); every other
+  quantity in every case is at most 0.63. cond(A) ranges from 2.6 to 68,
+  and reaches 3.9e5 in `gaussian_ill_conditioned` (Gaussian model, no
+  nugget). GSLIB's covariance form with `unbias = C(0)` and gslib-rs's
+  variogram form agree throughout. The Lagrange multiplier printed by
+  GSLIB is −μ of the variogram form.
+- **Mutation checks**, against the fixtures: 6 of 7 planted bugs caught:
+  - `ndmax` off by one (245 mismatches);
+  - `ndmin` off by one (1 510);
+  - no cut after the octant rule (51);
+  - OK variance without μ (287);
+  - SK ignoring the mean (112);
+  - azimuth counter-clockwise (890).
+  
+  An octant boundary rule survives because no fixture datum sits exactly
+  on a boundary; the unit tests cover it.
+- **Fixture design lesson:** the `octants` case first used `max_data` 16,
+  then 10. In 2-D every datum falls in octants 1–4, so at most 8 pass, and
+  the cut never bound. A planted bug exposed this, and the case now uses 6.
+- **Size:** the nine fixtures take 0.94 MB, mostly the widened debug files.
+
+## D-035: k for kriging tolerances is 100
+- Status: decided (calibration called for by D-010)
+- Topic: harness.md
+- Question: What is `k` in the linear-solve bound `k · cond(A) · ε`?
+- Decision: **k = 100.** cond(A) is the larger of the two systems' (GSLIB's
+  covariance form bordered by `unbias = C(0)`, gslib-rs's form), computed
+  by SVD in the harness. The scale is the largest |value| among the
+  selected data for estimates, `C(0)` for variances and Lagrange
+  multipliers, and 1 for weights.
+- Rationale: the worst observed ratio over nine fixtures (F-015) is 10.4,
+  including cond(A) = 3.9e5. A factor of about 10 above the worst case
+  leaves room for other platforms' rounding without hiding real errors:
+  every planted kriging bug exceeded it by orders of magnitude.
+- Consequences: raising `k` needs a new decision entry with evidence, never
+  a quiet change (`AGENTS.md`, *Never weaken … to get green*).

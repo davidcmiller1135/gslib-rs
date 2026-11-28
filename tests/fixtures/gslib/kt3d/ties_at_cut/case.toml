@@ -1,0 +1,23 @@
+schema = 1
+program = "kt3d"
+description = "A 6 x 5 x 4 data lattice with nodes at cell centres: each interior node has 8 equidistant corner data, and ndmax = 6 cuts through that tie (D-024)."
+inputs = ["grid_3d.dat"]
+
+[parameters]
+data = "grid_3d.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+grid_counts = [5, 4, 3]
+grid_origin = [1.0, 1.0, 0.5]
+grid_spacing = [2.0, 2.0, 1.0]
+min_data = 1
+max_data = 6
+search_radii = [2.0, 2.0, 2.0]
+kriging = "ordinary"
+nugget = 0.0
+structures = [{ kind = 2, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [10.0, 10.0, 10.0] }]
+
+[[expected_deviations]]
+quantity = "search_ties"
+divergence = "Order of equidistant search data (ROADMAP §2)"
+reason = "GSLIB orders equidistant candidates by an unstable quicksort over its super-block order, so which 6 of the 8 tied corners it keeps differs from gslib-rs's row order. The harness checks that GSLIB's choice is a valid one among the tied data, and kriges GSLIB's own choice to compare the estimate."

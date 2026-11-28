@@ -1,0 +1,19 @@
+schema = 1
+program = "kt3d"
+description = "Simple point kriging around a mean of 2.8 with an exponential model, same grid and search as ok_isotropic."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+grid_counts = [8, 8, 1]
+grid_origin = [5.0, 5.0, 0.0]
+grid_spacing = [12.0, 12.0, 1.0]
+min_data = 4
+max_data = 12
+search_radii = [40.0, 40.0, 40.0]
+kriging = "simple"
+sk_mean = 2.8
+nugget = 0.05
+structures = [{ kind = 2, cc = 0.95, angles = [0.0, 0.0, 0.0], ranges = [45.0, 45.0, 45.0] }]

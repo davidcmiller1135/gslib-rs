@@ -1,0 +1,18 @@
+schema = 1
+program = "kt3d"
+description = "A short search (radius 12) requiring 3 data: many nodes have too few, and GSLIB writes UNEST = -999 where gslib-rs's OnTooFewData::Unestimated gives None (S5)."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+grid_counts = [8, 8, 1]
+grid_origin = [5.0, 5.0, 0.0]
+grid_spacing = [12.0, 12.0, 1.0]
+min_data = 3
+max_data = 8
+search_radii = [12.0, 12.0, 12.0]
+kriging = "ordinary"
+nugget = 0.1
+structures = [{ kind = 1, cc = 0.9, angles = [0.0, 0.0, 0.0], ranges = [50.0, 50.0, 50.0] }]

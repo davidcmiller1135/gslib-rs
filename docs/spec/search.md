@@ -161,7 +161,10 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
        evidence for keeping it.
    - Tests: S6.
    - Depends on 1.
-3. **Search fixtures through `kt3d`** (with harness step 7).
+3. **Search fixtures through `kt3d`** (with harness step 7; done: nine
+   fixtures, F-015. GSLIB's selection equals a port of its super-block
+   search at every node; the `picksup` miss is confirmed (150 of 1 764
+   nodes in `picksup_probe`); k = 100 (D-035)).
    - Work:
      - a `kt3d` case generator in `oracle-case`, run with `idbg = 2`;
      - a debug-file parser in `harness/` (D-027).
