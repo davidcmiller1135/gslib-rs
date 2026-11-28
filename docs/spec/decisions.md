@@ -1359,3 +1359,42 @@ From `vendor/gslib-2.0/src/`:
     stream instead, so it runs realizations sequentially.
   - The seed-to-stream rule lives in one place (a seed type, question 4),
     not in each program.
+
+## D-038: Exact-stream parity: building blocks now, sgsim's mode later
+- Status: decided
+- Topic: rng.md
+- Question: What does the opt-in exact-stream parity cover, and when is it
+  built?
+- Options: building blocks now and an `sgsim` exact mode after statistical
+  parity; the full `sgsim` mode now; ACORN only, the rest deferred.
+- Decision:
+  - **Now, three building blocks, each checked bit for bit against
+    GSLIB:**
+    - `Acorn`, a `rand::RngCore` with GSLIB's seeding (order 12, modulus
+      2³⁰, zeroed state) and an explicit 1 000-draw warm-up (F-016);
+    - GSLIB's random path: one draw per node, nodes visited in increasing
+      order of their draws (plus the multiple-grid offsets when used);
+    - Gaussian deviates as `gauinv(p)`, GSLIB's approximation (D-016),
+      alongside gslib-rs's exact inverse.
+  - **Later, after statistical parity (harness step 8): an `sgsim` exact
+    mode.** It is defined as the same random path and the same draws, with
+    simulated values equal within a stated solver tolerance, not bit for
+    bit (the two codes solve kriging systems differently). It applies to
+    cases without `picksup` misses (D-025) or ties at a search cut (D-024).
+- Rationale: the building blocks are small and independently verifiable;
+  the full mode depends on search and kriging parity that harness step 8
+  establishes first. Exact parity stays an opt-in (`AGENTS.md`, *Parity
+  levels*).
+- Consequences:
+  - **The check for all three blocks at once:** an unconditional `sgsim`
+    fixture whose search radius is smaller than the node spacing, so no
+    data or nodes are ever found. Each node is then `gmean + 1·gauinv(p)`
+    (`SGSIM.FOR` lines 941–943), and the output in grid order exposes the
+    warm-up, the path order and every deviate. Several realizations check
+    the single stream.
+  - ACORN can also be checked through `nscore`'s despiking: each datum is
+    `v + acorni·10⁻⁶`, in data order after the warm-up (F-005).
+  - The exact mode keeps GSLIB's single stream across realizations, so it
+    runs sequentially (D-037 applies to the default mode).
+  - `gauinv` moves from the harness into the library as the documented
+    approximation that the exact mode uses.

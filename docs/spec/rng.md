@@ -39,10 +39,15 @@ reproducible from their seed and independent of thread count.
   `rand::RngCore` for exact-stream parity.
 - **Streams** (D-037): realization k uses `ChaCha8Rng::seed_from_u64(master)`
   with `set_stream(k)`, so it depends only on (master, k).
+- **Exact-stream parity** (D-038): now, ACORN with GSLIB's seeding and
+  warm-up, GSLIB's random path, and `gauinv` deviates, each checked bit for
+  bit (an unconditional `sgsim` fixture where nothing is ever found). Later,
+  after harness step 8, an `sgsim` exact mode: same path and draws, values
+  within a solver tolerance.
 
 ## Open questions (in dependency order)
 
 1. ~~The default generator~~ (D-036).
 2. ~~Realization streams~~ (D-037).
-3. What exact stream parity covers, and when it is built.
+3. ~~Exact stream parity~~ (D-038).
 4. Seed type and validation.
