@@ -325,7 +325,7 @@ struct RealizationArgs {
     /// Number of realizations.
     #[arg(long, default_value_t = 1)]
     nsim: usize,
-    /// Random seed (69069, recalled as GSLIB's customary example seed).
+    /// Random seed (69069, GSLIB's example seed in SGSIM.PAR and SISIM.PAR; F-016).
     #[arg(long, default_value_t = 69069)]
     seed: u64,
     /// Output prefix: writes `PREFIX_0.gslib`, `PREFIX_1.gslib`, ...

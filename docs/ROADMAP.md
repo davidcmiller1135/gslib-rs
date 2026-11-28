@@ -230,8 +230,10 @@ reference run, and say which.
   1.0e-6`, ACORN seeded 69069), `NSCORE.FOR` lines 31, 142, 179. F-005.
 - [x] `gauinv` algorithm and accuracy: rational approximation (Kennedy &
   Gentle 1980, per its own comment), measured error ≤ 1.501e-8. F-007.
-- [~] ACORN as the generator and 69069 as its seed: confirmed in `nscore`
-  (F-005); still to check in each simulation program. §2, `cli/src/main.rs`
+- [x] ACORN as the generator and 69069 as its seed: `nscore` (F-005), and
+  every stochastic program from its source (`sgsim`, `sisim`, `sasim`,
+  `lusim`, `ellipsim`, `draw`, …; 69069 in `SGSIM.PAR` and `SISIM.PAR`).
+  F-016. §2, `cli/src/main.rs`
 - [ ] Grid conventions: `xmn` is the first cell's centre, x-fastest order:
   `simulation/grid.rs`
 - [x] Search parameter names (`ndmax`, `nodmax`, `radius`): `ndmin, ndmax`,

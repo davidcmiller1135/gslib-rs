@@ -1275,3 +1275,34 @@ node (`harness/tests/kt3d.rs`):
   every planted kriging bug exceeded it by orders of magnitude.
 - Consequences: raising `k` needs a new decision entry with evidence, never
   a quiet change (`AGENTS.md`, *Never weaken … to get green*).
+
+## Finding F-016: GSLIB 2.0's random numbers (survey, 2026-11-28)
+From `vendor/gslib-2.0/src/`:
+
+- **Generator:** ACORN (`GSLIB/ACORNI.FOR`), order `KORDEI = 12`, modulus
+  `MAXINT = 2³⁰`. Each draw updates
+  `ixv(i+1) = (ixv(i+1) + ixv(i)) mod 2³⁰` for i = 1..12 and returns
+  `ixv(13) / 2³⁰`, in [0, 1). The state is integer (32-bit, unaffected by
+  double promotion) and lives in a common block.
+- **Seeding rules** (the routine's own notes):
+  - `0 < seed < 2³⁰`;
+  - the other 12 state words start at 0;
+  - a seed is best odd and between about 0.001·2³⁰ and 0.999·2³⁰.
+  
+  `sgsim` sets only `ixv(1)` (`SGSIM.FOR` line 174) and relies on the
+  common block starting at zero; `nscore` zeroes it explicitly (line 140).
+- **Warm-up:** after seeding, 1 000 draws are discarded in `sgsim`,
+  `sisim`, `sisim_gs`, `sisim_lm`, `sasim`, `lusim`, `ellipsim`, `draw` and
+  `nscore`. `anneal` uses ACORN without that loop. `gtsim`, `pfsim`,
+  `bicalib` and `postsim` draw no random numbers.
+- **Example seeds:** 69069 in `SGSIM.PAR` and `SISIM.PAR`, and hard-coded
+  in `nscore`.
+- **`sgsim`'s use of the stream** (`SGSIM.FOR`):
+  - per realization, one draw per node builds the random path: the nodes
+    are sorted by those draws with `sortem`, after adding `imult` at the
+    multiple-grid nodes (lines 814–842);
+  - one draw per simulated node, `gauinv(p)`, gives the Gaussian deviate,
+    using GSLIB's approximate inverse (line 958, D-016).
+  
+  A single stream runs through all realizations, so realization *k*
+  depends on every earlier one.
