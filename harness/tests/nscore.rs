@@ -10,6 +10,7 @@
 #[cfg(test)]
 mod nscore {
     use gslib_rs::io::{Extraction, GslibData, Trimming, parse_gslib};
+    use gslib_rs::random::Acorn;
     use gslib_rs::transform::normal_scores;
     use harness::compare::{Comparison, DIRECT, Tolerance};
     use harness::gslib_math::{GAUINV_MAX_ERROR, gauinv};
@@ -26,6 +27,37 @@ mod nscore {
         relative: 0.0,
         absolute: 1e-6,
     };
+
+    /// ACORN (RN3): GSLIB perturbs each kept datum, in data order, to
+    /// `v + acorni·1e-6` with ACORN seeded 69069 and warmed up (`NSCORE.FOR`
+    /// lines 142-179), and its table is those values sorted. Reproducing them
+    /// bit for bit checks gslib-rs's `Acorn`.
+    fn check_acorn(cmp: &mut Comparison<'_>, values: &[f64], table: &[Vec<f64>]) {
+        let mut acorn = Acorn::gslib(69069).unwrap();
+        let mut despiked: Vec<f64> = values
+            .iter()
+            .map(|&v| despike(v, acorn.next_acorni()))
+            .collect();
+        despiked.sort_by(f64::total_cmp);
+        for (k, (row, &d)) in table.iter().zip(&despiked).enumerate() {
+            cmp.value("acorn_despike", d, row[0], 1.0, DIRECT, || {
+                format!("table row {}", k + 1)
+            });
+            cmp.structure(row[0].to_bits() == d.to_bits(), || {
+                format!("table row {}: despiked value not bit-identical", k + 1)
+            });
+        }
+    }
+
+    /// `NSCORE.FOR`'s `dble(var) + acorni(idum)·dble(EPSLON)`, unfused as
+    /// GSLIB is built (`-ffp-contract=off`).
+    #[expect(
+        clippy::suboptimal_flops,
+        reason = "reproduce GSLIB's unfused arithmetic exactly"
+    )]
+    fn despike(value: f64, acorni: f64) -> f64 {
+        value + acorni * 1.0e-6
+    }
 
     /// Keep the entries of a per-row column whose row is present.
     fn keep(column: Vec<f64>, present: &[Option<f64>]) -> Vec<f64> {
@@ -112,6 +144,7 @@ mod nscore {
                 }
             }
         }
+        check_acorn(&mut cmp, &values, &table);
         // The table: GSLIB's perturbed values against the sorted data,
         // and its scores against ours in the same order.
         let mut sorted: Vec<(f64, f64)> = values

@@ -70,7 +70,9 @@ None.
     lines 142–179; trimmed rows draw nothing). Its table is those values
     sorted. The harness checks them exactly, on every `nscore` fixture,
     including `ties`, whose random tie order this reproduces.
-- **RN4 ACORN as an `RngCore`.** `next_u32` is the 30-bit word shifted to
+- **RN4 ACORN as a `rand` generator** (rand 0.10's `TryRng` with
+  `Error = Infallible`, which provides `Rng`; `RngCore` is deprecated in
+  0.10). `next_u32` is the 30-bit word shifted to
   the top of 32 bits; `next_u64` combines two draws. The exact mode uses
   `next_acorni` only; the trait exists so ACORN can drive any gslib-rs
   algorithm.
@@ -103,8 +105,14 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
      CLI seeds each realization from it.
    - Tests: RN1, RN2, RN8.
    - Unblocks parallel realizations (parallelism step 4).
-2. **ACORN.**
-   - Work: `random::Acorn` (`new`, `gslib`, `next_acorni`, `RngCore`).
+2. **ACORN** (done: `random::Acorn`. Unit tests check the recurrence against
+   its closed form `s·C(n + 11, 12) mod 2³⁰` for five seeds over 60 draws,
+   including a sum of exactly 2³⁰. **GSLIB check:** the despiked values of
+   all 7 `nscore` tables, `ties` and trimmed `with_sentinels` included, are
+   reproduced bit for bit. Planted bugs: a 999-draw warm-up (612
+   mismatches against GSLIB), order 11, and a `>` in the reduction, all
+   caught once two unit tests were sharpened).
+   - Work: `random::Acorn` (`new`, `gslib`, `next_acorni`, `TryRng`).
    - Tests: RN3 (unit tests from the recurrence, and the `nscore`
      despiking oracle in the harness), RN4.
 3. **`gauinv` in the library.**
