@@ -1,7 +1,7 @@
 # Spec: gamv (directional variograms of scattered data)
 
-Status: **specified** (decisions D-041 to D-052; findings F-019 to F-024 in
-`decisions.md`). GSLIB facts were read from
+Status: **implemented** (decisions D-041 to D-052; findings F-019 to F-027
+in `decisions.md`). GSLIB facts were read from
 `vendor/gslib-2.0/src/GAMV/GAMV.FOR`, except F-020, which is a computation
 that the fixtures in plan step 6 confirm.
 
@@ -166,6 +166,10 @@ This finishes milestone M3 (PLAN.md).
   indicator convention (D-050).
 - Exact fixed-format output, with the `.par` adapter (D-052).
 - A parallel `gamv` by row blocks (D-051).
+- A fixture with a wide dip tolerance, to confirm F-024 against GSLIB.
+- GSLIB defects found by the fixtures, not reproduced: missing indicators
+  paired as data (F-025), and the half-open swapped ordering at `tmax`
+  (F-026).
 
 ## Open questions
 
@@ -234,3 +238,6 @@ Each step is one reviewable PR (here: commits on PR #5), and every check in
        `cluster.dat` with `GAMV.PAR`.
    - Outcome: confirm or correct F-020, F-023 and F-024 against reference
      runs.
+   - **Status: done** (F-027). 17 fixtures pass. F-020, F-023, F-025 and
+     F-026 are confirmed; F-024 is not exercised yet (it needs a wide dip
+     tolerance). Mutation checks: 131 and 575 mismatches.

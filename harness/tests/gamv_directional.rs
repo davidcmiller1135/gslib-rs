@@ -175,15 +175,15 @@ mod gamv_directional {
     /// because a value of the variogram's pair equals `tmax` (F-026), counted
     /// independently with gslib-rs's public pair primitives. Only for
     /// variograms with tail = head.
-    fn lost_at_tmax(legacy: &Legacy, v: usize, d: usize) -> Vec<usize> {
-        let spec = legacy.request.variograms[v];
+    fn lost_at_tmax(legacy: &Legacy, variogram: usize, direction: usize) -> Vec<usize> {
+        let spec = legacy.request.variograms[variogram];
         assert_eq!(spec.tail, spec.head, "F-026 relation needs tail = head");
         let column = &legacy.columns[spec.tail];
-        let window = legacy.request.directions[d].window(legacy.request.policies.pi);
+        let window = legacy.request.directions[direction].window(legacy.request.policies.pi);
         let mut lost = vec![0; legacy.request.lags.len()];
-        let n = legacy.points.len();
-        for i in 0..n {
-            for j in i..n {
+        let count = legacy.points.len();
+        for i in 0..count {
+            for j in i..count {
                 let (Some(a), Some(b)) = (column[i], column[j]) else {
                     continue;
                 };
@@ -275,10 +275,10 @@ mod gamv_directional {
                 } else if lost[k] > 0 {
                     // F-026: GSLIB summed fewer orderings; only the count can
                     // be compared.
-                    let expected = u64::try_from(lag.orderings - lost[k]).unwrap();
-                    check.cmp.structure(row.pairs == expected, || {
+                    let remaining = u64::try_from(lag.orderings - lost[k]).unwrap();
+                    check.cmp.structure(row.pairs == remaining, || {
                         format!(
-                            "{name}: {at}: GSLIB np {} != orderings − lost at tmax {expected}",
+                            "{name}: {at}: GSLIB np {} != orderings − lost at tmax {remaining}",
                             row.pairs
                         )
                     });

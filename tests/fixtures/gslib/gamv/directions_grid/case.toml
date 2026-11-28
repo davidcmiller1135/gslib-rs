@@ -1,0 +1,19 @@
+schema = 1
+program = "gamv"
+description = "Directions at 0 and 45 degrees with tolerances of 22.5 and 45 on a unit grid, where the 45-degree windows put the grid diagonals and axes exactly on their edges (F-020), plus azimuth 90 with atol = 90, which drops north-south pairs (F-023)."
+inputs = ["grid_2d.dat"]
+
+[parameters]
+data = "grid_2d.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 4
+lag_spacing = 1.0
+lag_tolerance = 0.5
+directions = [
+    [0.0, 22.5, 1.0e21, 0.0, 90.0, 1.0e21],
+    [45.0, 22.5, 1.0e21, 0.0, 90.0, 1.0e21],
+    [0.0, 45.0, 1.0e21, 0.0, 90.0, 1.0e21],
+    [45.0, 45.0, 1.0e21, 0.0, 90.0, 1.0e21],
+    [90.0, 90.0, 1.0e21, 0.0, 90.0, 1.0e21],
+]

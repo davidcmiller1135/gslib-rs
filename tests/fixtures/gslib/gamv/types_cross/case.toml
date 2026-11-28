@@ -1,0 +1,23 @@
+schema = 1
+program = "gamv"
+description = "Cross measures with tail != head (cross-semivariogram, covariance, sill minus covariance, correlogram, madogram), along a 45-degree direction and omnidirectionally, where GSLIB averages both orderings of every pair (D-043)."
+inputs = ["grid_2d.dat"]
+
+[parameters]
+data = "grid_2d.dat"
+coordinate_columns = [1, 2, 0]
+variable_columns = [4, 5]
+nlag = 4
+lag_spacing = 1.0
+lag_tolerance = 0.5
+directions = [
+    [45.0, 30.0, 1.0e21, 0.0, 90.0, 1.0e21],
+    [0.0, 90.0, 1.0e21, 0.0, 90.0, 1.0e21],
+]
+variograms = [
+    { tail = 1, head = 2, kind = 2 },
+    { tail = 1, head = 2, kind = 3 },
+    { tail = 1, head = 2, kind = -3 },
+    { tail = 1, head = 2, kind = 4 },
+    { tail = 1, head = 2, kind = 8 },
+]

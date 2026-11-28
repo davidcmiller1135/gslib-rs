@@ -1,0 +1,23 @@
+schema = 1
+program = "gamv"
+description = "The book's cluster.dat (vendor/gslib-2.0/src/DATA/CLUSTER.DAT, line endings converted from CRLF to LF, otherwise byte-identical) with the parameters of GSLIB's own GAMV.PAR: three directions, standardised sills, a covariance and two semivariograms."
+inputs = ["cluster.dat"]
+
+[parameters]
+data = "cluster.dat"
+coordinate_columns = [1, 2, 0]
+variable_columns = [3, 4]
+nlag = 10
+lag_spacing = 5.0
+lag_tolerance = 3.0
+standardize = true
+directions = [
+    [0.0, 90.0, 50.0, 0.0, 90.0, 50.0],
+    [0.0, 22.5, 25.0, 0.0, 22.5, 25.0],
+    [90.0, 22.5, 25.0, 0.0, 22.5, 25.0],
+]
+variograms = [
+    { tail = 1, head = 1, kind = 1 },
+    { tail = 1, head = 1, kind = 3 },
+    { tail = 2, head = 2, kind = 1 },
+]

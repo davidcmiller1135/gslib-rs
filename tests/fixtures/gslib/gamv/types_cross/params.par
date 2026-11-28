@@ -1,0 +1,22 @@
+                  Parameters for GAMV
+                  *******************
+
+START OF PARAMETERS:
+grid_2d.dat   \file with data
+1 2 0   \columns for X, Y, Z coordinates
+2 4 5   \number of variables, column numbers
+-1.0e21 1.0e21   \trimming limits
+gamv.out   \file for variogram output
+4   \number of lags
+1   \lag separation distance
+0.5   \lag tolerance
+2   \number of directions
+45.0 30.0 1e21 0.0 90.0 1e21   \azm,atol,bandh,dip,dtol,bandv
+0.0 90.0 1e21 0.0 90.0 1e21   \azm,atol,bandh,dip,dtol,bandv
+0   \standardize sills? (0=no, 1=yes)
+5   \number of variograms
+1 2 2   \tail var., head var., variogram type
+1 2 3   \tail var., head var., variogram type
+1 2 -3   \tail var., head var., variogram type
+1 2 4   \tail var., head var., variogram type
+1 2 8   \tail var., head var., variogram type

@@ -34,7 +34,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `cova3` / `setrot` | ✅ | `model::VariogramModel`, `geometry::Anisotropy` | all five structure types and three-angle anisotropy; tested against hand-derived values, not yet against Fortran |
-| `gamv` | 🟡 | `variogram::{experimental_variogram, CentredLags}`; omnidirectional parity fixtures (F-008), with trimming (F-011) | specified in `docs/spec/gamv.md` (D-041 to D-052): directions, the other 9 variogram types, multiple variables, standardisation, indicators, CLI on GSLIB's lags; implementation in progress |
+| `gamv` | ✅ | `variogram::{gamv, Direction, CentredLags, indicator_continuous, indicator_categorical}`, CLI `variogram`; 17 parity fixtures (F-008, F-011, F-027) | a parallel `gamv`; flagged corrections (`docs/spec/gamv.md`) |
 | `gam` | ⬜ | | variograms of gridded data along grid directions |
 | `varmap` | ⬜ | | variogram maps |
 | `vmodel` | 🟡 | `VariogramModel::gamma` | write model values along directions |
@@ -111,7 +111,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Two data on one node (`sgsim`, `sstrat = 1`) | keeps the datum closer to the node (L1; the later on a tie) and drops the other, with only a debug-file warning (D-028) | error naming both data and the node | `OnSharedNode::KeepClosest` |
 | Data outside the grid (`sgsim`, `sstrat = 1`) | `getindx` clamps the datum to the edge node, however far away (F-013) | error naming the datum | `OutsideGrid::ClampToEdge` |
 | Order of equidistant search data | unstable quicksort over super-block order (F-012) | by distance, then input row (D-024) | GSLIB's order: deferred to the exact-stream parity spec |
-| Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
+| Trimming interval | mostly `tmin ≤ v < tmax`; `gamv` uses four intervals: reading `[tmin, tmax)`, pairing `[tmin, tmax]`, the omnidirectional swapped ordering `[tmin, tmax)`, indicators `(tmin, tmax]` (F-011, F-021, F-026); closed tests also in `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |
 | `lusim` unestimated code | −1.0 (collides with real data) | −999 by default, configurable (D-023) | `--unest -1` |
 | Omnidirectional pair counts (`gamv`) | each pair counted in both orderings, so `np` is doubled; with tail ≠ head this averages the two orderings | each pair reported once; both orderings still averaged, so values equal GSLIB's (D-043) | n/a (reporting convention); D-017 |
@@ -119,7 +119,8 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Types 6/7, omnidirectional, tail ≠ head (`gamv`) | the swapped term is computed from the unswapped values; can give `NaN`/`Inf` | uses the swapped values; non-finite → error | `OmniRelativeLog::GslibDuplicate` (D-047) |
 | Undefined lag values (`gamv`) | γ = 0 (types 4, 5) or −999 (type −3); standardisation silently skipped for a sill ≤ 0 | `gamma: None`; standardising with a sill ≤ 0 is an error | GSLIB's values at output (D-049) |
 | Indicators (`gamv`, types 9/10) | `I = 1` if `v ≥ c`; categories by `int(v + 0.5)`; categorical sill 0 (F-022) | `I = 1` if `v ≤ c` (IK3D's convention); exact integer categories; sill p(1−p) | gamv's conventions in the fixture adapter (D-050). Flag: `sasim` uses `v < t` |
-| `gamv` edge cases | `atol = 90` drops pairs exactly perpendicular to the azimuth (F-023); tail/head depends on row order for mixed-sign pairs (F-024) | same (reproduced) | flagged: correct later |
+| `gamv` edge cases | `atol = 90` drops pairs exactly perpendicular to the azimuth (F-023, confirmed by fixture); tail/head depends on row order for mixed-sign pairs (F-024) | same (reproduced) | flagged: correct later |
+| Missing indicators (`gamv`) | a missing indicator is stored as `tmin − 1e-20`, which rounds to `tmin` and is paired as data (F-025, confirmed by fixture) | `None`, never paired | none (a defect; reproduced only by the fixture adapter) |
 | π in angle conversion | `3.141592654` (`setrot`), `3.14159265` (`cova3`, `gamv`) | exact `π` | `PiConstant::Gslib`: planned for exact-stream parity, and needed for exact `gamv` pair counts at tolerance edges (F-020, D-046). Flagged: a symmetric boundary rule |
 | Coincident points (`cova3`) | squared anisotropic distance < `1e-10` | Euclidean distance < `1e-10` | planned: GSLIB coincidence policy |
 | Power model range | range slot holds ω | `Kind::Power { exponent }`; range is a unit distance | range 1 reproduces GSLIB |

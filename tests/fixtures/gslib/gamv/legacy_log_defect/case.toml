@@ -1,0 +1,16 @@
+schema = 1
+program = "gamv"
+description = "An omnidirectional logarithmic variogram with tail != head where the head variable has zeros: gamv guards the swapped ordering by the swapped values but computes it from the unswapped ones (GAMV.FOR l. 758), so it takes the log of 0 and writes a non-finite value. gslib-rs must fail instead (D-047, P2)."
+inputs = ["multivariate.dat"]
+
+[parameters]
+data = "multivariate.dat"
+coordinate_columns = [1, 2, 3]
+variable_columns = [4, 5]
+trimming_limits = [-998.0, 1.0e21]
+nlag = 5
+lag_spacing = 4.0
+lag_tolerance = 2.0
+variograms = [
+    { tail = 1, head = 2, kind = 7 },
+]

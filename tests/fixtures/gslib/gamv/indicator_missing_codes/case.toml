@@ -1,0 +1,17 @@
+schema = 1
+program = "gamv"
+description = "-999 codes in an indicator's source variable, with tmin = -998 and a second variable present in those rows: gamv stores a missing indicator as tmin - 1e-20, which rounds to tmin and so passes the pair test (F-025)."
+inputs = ["multivariate.dat"]
+
+[parameters]
+data = "multivariate.dat"
+coordinate_columns = [1, 2, 3]
+variable_columns = [4, 5]
+trimming_limits = [-998.0, 1.0e21]
+nlag = 5
+lag_spacing = 4.0
+lag_tolerance = 2.0
+variograms = [
+    { tail = 1, head = 1, kind = 9, cutoff = 4.0 },
+    { tail = 2, head = 2, kind = 1 },
+]

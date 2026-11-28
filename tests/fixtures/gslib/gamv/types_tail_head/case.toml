@@ -1,0 +1,23 @@
+schema = 1
+program = "gamv"
+description = "Covariance, correlogram, general relative, pairwise relative and logarithmic variograms with tail = head, along a direction and omnidirectionally: each measure's formula and finalisation (F-019)."
+inputs = ["grid_2d.dat"]
+
+[parameters]
+data = "grid_2d.dat"
+coordinate_columns = [1, 2, 0]
+variable_columns = [4, 5]
+nlag = 4
+lag_spacing = 1.0
+lag_tolerance = 0.5
+directions = [
+    [0.0, 22.5, 1.0e21, 0.0, 90.0, 1.0e21],
+    [0.0, 90.0, 1.0e21, 0.0, 90.0, 1.0e21],
+]
+variograms = [
+    { tail = 1, head = 1, kind = 3 },
+    { tail = 1, head = 1, kind = 4 },
+    { tail = 2, head = 2, kind = 5 },
+    { tail = 2, head = 2, kind = 6 },
+    { tail = 2, head = 2, kind = 7 },
+]

@@ -1,0 +1,29 @@
+schema = 1
+program = "gamv"
+description = "Three variables with tmin = 0 and tmax = 10 and standardised sills: a continuous indicator at a cut-off that ties with data (gamv: I = 1 if v >= c), a categorical indicator, and semivariograms. Zeros sit at tmin (paired, but missing for indicators) and a datum sits at tmax (paired), so gamv's three trimming intervals all act (F-021, D-048)."
+inputs = ["multivariate.dat"]
+
+[parameters]
+data = "multivariate.dat"
+coordinate_columns = [1, 2, 3]
+variable_columns = [4, 5, 6]
+trimming_limits = [0.0, 10.0]
+nlag = 5
+lag_spacing = 4.0
+lag_tolerance = 2.0
+standardize = true
+directions = [
+    [0.0, 90.0, 1.0e21, 0.0, 90.0, 1.0e21],
+    [0.0, 30.0, 1.0e21, 0.0, 90.0, 1.0e21],
+]
+variograms = [
+    { tail = 1, head = 1, kind = 1 },
+    { tail = 1, head = 1, kind = 9, cutoff = 4.0 },
+    { tail = 3, head = 3, kind = 10, cutoff = 1.0 },
+    { tail = 2, head = 2, kind = 1 },
+]
+
+[[expected_deviations]]
+quantity = "omnidirectional_at_tmax"
+divergence = "gamv trimming intervals (ROADMAP §2; F-021, F-026)"
+reason = "In an omnidirectional direction GSLIB tests the swapped ordering against [tmin, tmax) (GAMV.FOR ll. 637-638) but the first against [tmin, tmax] (l. 623), so a pair with a datum at exactly tmax = 10 counts one ordering, not two. gslib-rs treats v = tmax as missing by default (D-048), and its legacy reading cannot express a value valid in one ordering only. The harness checks GSLIB's count exactly (orderings minus the orderings lost at tmax) and compares values only in lags without such pairs."
