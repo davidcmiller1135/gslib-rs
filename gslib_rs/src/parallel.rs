@@ -12,6 +12,9 @@
 //!   first. Every item is therefore evaluated even when one fails, which
 //!   keeps the outcome independent of scheduling.
 //!
+//! Entry points: [`try_map`] for any per-item function (e.g. kriging at many
+//! targets) and [`experimental_variogram`] for the pair loop's blocks.
+//!
 //! The threads come from `rayon`'s global pool (sized by `RAYON_NUM_THREADS`
 //! or the number of cores) unless the call runs inside [`with_threads`].
 //!
@@ -50,6 +53,9 @@ use std::num::NonZeroUsize;
 use rayon::prelude::*;
 
 use crate::error::{Error, Result};
+use crate::geometry::Point3;
+use crate::sample::Sample;
+use crate::variogram::{Lag, LagScheme, LagSums, PairPlan};
 
 /// Apply `f` to every item in parallel and return the results in item
 /// order, or the first error in item order (P2).
@@ -66,6 +72,26 @@ where
     // picks the first error by position, not by time.
     let results: Vec<Result<T>> = items.par_iter().map(&f).collect();
     results.into_iter().collect()
+}
+
+/// The experimental semivariogram of `samples`, with its row blocks summed
+/// in parallel: bit-identical to [`crate::variogram::experimental_variogram`]
+/// for any thread count (D-031, P3).
+///
+/// Each block of rows is summed sequentially, as in the sequential path,
+/// and the block sums are combined in block order.
+#[must_use]
+pub fn experimental_variogram<L>(samples: &[Sample], lags: &L) -> Vec<Lag>
+where
+    L: LagScheme + Sync + ?Sized,
+{
+    let points: Vec<Point3> = samples.iter().map(Sample::location).collect();
+    let values: Vec<f64> = samples.iter().map(Sample::value).collect();
+    let plan = PairPlan::new(&points, &values, lags);
+    let blocks: Vec<usize> = (0..plan.block_count()).collect();
+    // `collect` into a `Vec` keeps block order.
+    let sums: Vec<Vec<LagSums>> = blocks.par_iter().map(|&b| plan.block_sums(b)).collect();
+    plan.finish(sums)
 }
 
 /// Run `work` in a dedicated pool of exactly `threads` threads.
@@ -204,6 +230,95 @@ mod tests {
                     assert_eq!(target, Point3::new(500.0, 500.0, 0.0), "{threads} threads");
                 }
                 other => panic!("expected a too-few-data error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn variogram_is_identical_for_any_thread_count() {
+        // P1, P3: several row blocks (1 500 data, 6 blocks), both lag
+        // schemes; parallel equals sequential bit for bit.
+        use crate::variogram::{CentredLags, LagClasses};
+        let samples: Vec<Sample> = (0..1_500_u32)
+            .map(|i| {
+                let f = f64::from(i);
+                let (x, y) = (
+                    (f * 0.618_034).fract() * 200.0,
+                    (f * 0.414_214).fract() * 200.0,
+                );
+                Sample::new(Point3::new(x, y, (f * 0.1).fract()), (x * 0.03).sin() * y).unwrap()
+            })
+            .collect();
+        let lag_bits = |lags: &[Lag]| -> Vec<[u64; 5]> {
+            lags.iter()
+                .map(|l| {
+                    let b = |v: Option<f64>| v.map_or(u64::MAX, f64::to_bits);
+                    [
+                        l.center.to_bits(),
+                        b(l.mean_distance),
+                        u64::try_from(l.pairs).unwrap(),
+                        b(l.gamma),
+                        b(l.pair_mean),
+                    ]
+                })
+                .collect()
+        };
+        let centred = CentredLags::new(12, 4.0, 3.0).unwrap();
+        let classes = LagClasses::new(60.0, 15).unwrap();
+        let sequential = (
+            lag_bits(&crate::variogram::experimental_variogram(
+                &samples, &centred,
+            )),
+            lag_bits(&crate::variogram::experimental_variogram(
+                &samples, &classes,
+            )),
+        );
+        assert!(sequential.0.iter().any(|l| l[2] > 1000), "a real workload");
+        for threads in pools() {
+            let parallel = with_threads(threads, || {
+                (
+                    lag_bits(&experimental_variogram(&samples, &centred)),
+                    lag_bits(&experimental_variogram(&samples, &classes)),
+                )
+            })
+            .unwrap();
+            assert_eq!(parallel, sequential, "{threads} threads");
+        }
+        // Degenerate inputs.
+        assert_eq!(
+            lag_bits(&experimental_variogram(&[], &centred)),
+            lag_bits(&crate::variogram::experimental_variogram(&[], &centred))
+        );
+    }
+
+    #[test]
+    #[ignore = "timing evidence; run with --release --features parallel --ignored --nocapture"]
+    fn variogram_timing() {
+        use crate::variogram::CentredLags;
+        let samples: Vec<Sample> = (0..20_000_u32)
+            .map(|i| {
+                let f = f64::from(i);
+                let (x, y) = (
+                    (f * 0.618_034).fract() * 1000.0,
+                    (f * 0.414_214).fract() * 1000.0,
+                );
+                Sample::new(Point3::new(x, y, 0.0), (x * 0.01).sin()).unwrap()
+            })
+            .collect();
+        for lags in [
+            CentredLags::new(10, 5.0, 2.5).unwrap(),
+            CentredLags::new(10, 20.0, 10.0).unwrap(),
+        ] {
+            let started = std::time::Instant::now();
+            let sequential = crate::variogram::experimental_variogram(&samples, &lags);
+            let one = started.elapsed();
+            for threads in pools() {
+                let timer = std::time::Instant::now();
+                let parallel =
+                    with_threads(threads, || experimental_variogram(&samples, &lags)).unwrap();
+                let took = timer.elapsed();
+                assert_eq!(parallel, sequential);
+                println!("{lags:?}: sequential {one:?}, {threads} threads {took:?}");
             }
         }
     }

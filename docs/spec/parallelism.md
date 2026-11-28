@@ -133,7 +133,16 @@ feature unification (D-030).
    - Tests: P4 as a property test over random data and both lag schemes
      (including the zero-distance class, overlapping lags and pairs exactly
      at the cut-off); the `gamv` fixtures still pass; a timing note.
-3. **Deterministic parallel variogram** (D-031).
+3. **Deterministic parallel variogram** (D-031; done).
+   - Result: `parallel::experimental_variogram`, used by the CLI's
+     `variogram` command.
+   - Evidence:
+     - bit-identical to the sequential function with 1, 2 and 8 threads,
+       for both lag schemes on 1 500 data (6 row blocks);
+     - combining the blocks in reverse order was caught.
+   - Timing (release, 4 cores, 20 000 scattered data):
+     - lags to 5% of the domain: 72 ms sequential, 28 ms on 8 threads;
+     - lags to 20%: 1.07 s sequential, 0.27 s on 8 threads (3.9×).
    - Work: blocks reduced in parallel, combined in block order.
    - Tests: P1; P3 (sequential equals parallel bit for bit, and agreement
      with the old single loop within 1e-12).
