@@ -106,6 +106,23 @@ pub(crate) fn parse_axis(spec: &str) -> Result<Axis, String> {
     })
 }
 
+/// Parse search angles `AZIMUTH:DIP:PLUNGE` in degrees (GSLIB's `sang1 sang2
+/// sang3`).
+///
+/// # Errors
+/// A message if there are not three numbers.
+pub(crate) fn parse_angles(spec: &str) -> Result<Angles, String> {
+    let fields: Vec<&str> = spec.split(':').collect();
+    let [azimuth, dip, plunge] = fields.as_slice() else {
+        return Err(format!("expected AZIMUTH:DIP:PLUNGE, got {spec:?}"));
+    };
+    Ok(Angles {
+        azimuth: number(azimuth, "azimuth")?,
+        dip: number(dip, "dip")?,
+        plunge: number(plunge, "plunge")?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +198,20 @@ mod tests {
         assert!(parse_axis("2.5:0:1").is_err(), "fractional count");
         assert!(parse_axis("10:0").unwrap_err().contains("N:MIN:SIZ"));
         assert!(parse_axis("10:a:1").unwrap_err().contains("first node"));
+    }
+
+    #[test]
+    fn angles_parse() {
+        let a = parse_angles("30:-10:5").unwrap();
+        assert_eq!(
+            [a.azimuth, a.dip, a.plunge].map(f64::to_bits),
+            [30.0_f64, -10.0, 5.0].map(f64::to_bits)
+        );
+        assert!(
+            parse_angles("30:0")
+                .unwrap_err()
+                .contains("AZIMUTH:DIP:PLUNGE")
+        );
+        assert!(parse_angles("x:0:0").unwrap_err().contains("azimuth"));
     }
 }

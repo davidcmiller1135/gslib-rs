@@ -68,6 +68,15 @@ so `--tmin -998` drops −999), or `--no-trimming` if they are real data. NaN
 and infinite values are errors unless `--nan missing` or
 `--inf missing|clamp` says otherwise. Coordinates are never trimmed.
 
+**Search.** `--min-samples`/`--max-samples` (GSLIB `ndmin`/`ndmax`),
+`--per-octant`, and an anisotropic ellipsoid from `--radius`,
+`--radius-minor`, `--radius-vertical` and `--search-angles AZ:DIP:PLUNGE`.
+`krige --on-too-few unestimated` writes `--unest` (default −999) where a
+target has too few data, as `kt3d` does. `sgsim`/`sisim` take
+`--max-nodes`, `--assign-data` (GSLIB's two-part search, with
+`--on-shared-node` and `--outside-grid`) and `--node-table gslib` for
+GSLIB's node-table limits.
+
 **Threads.** `krige` and `variogram` use every core; set `RAYON_NUM_THREADS`
 to limit them.
 Results are identical for any number of threads.

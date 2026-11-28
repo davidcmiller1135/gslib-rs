@@ -13,14 +13,19 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use gslib_rs::geometry::Point3;
-use gslib_rs::io::{Extraction, GslibData, PresentSamples, read_gslib, write_gslib};
-use gslib_rs::kriging::{ordinary_kriging, simple_kriging};
+use std::num::NonZeroUsize;
+
+use gslib_rs::geometry::{Angles, Point3, Ranges};
+use gslib_rs::io::{Extraction, GslibData, MissingCode, PresentSamples, read_gslib, write_gslib};
+use gslib_rs::kriging::{Estimate, ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::parallel::{experimental_variogram, try_map};
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
-use gslib_rs::search::{DataSearch, NodeSearch, SearchEllipsoid, SuperBlock, TableExtent};
+use gslib_rs::search::{
+    DataSearch, NodeSearch, OnSharedNode, OnTooFewData, OutsideGrid, SearchEllipsoid, SuperBlock,
+    TableExtent,
+};
 use gslib_rs::simulation::{Axis, DataConditioning, Grid, Searches, sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::LagClasses;
@@ -118,26 +123,142 @@ impl ModelArgs {
     }
 }
 
-/// The search neighbourhood.
+/// The search neighbourhood (GSLIB `ndmin ndmax`, `noct`, `radius radius1
+/// radius2`, `sang1 sang2 sang3`).
 #[derive(Debug, Clone, Copy, Args)]
 struct SearchArgs {
-    /// Maximum number of conditioning data per estimate.
+    /// Fewest conditioning data per estimate (GSLIB `ndmin`).
+    #[arg(long, default_value_t = 0)]
+    min_samples: usize,
+    /// Most conditioning data per estimate (GSLIB `ndmax`).
     #[arg(long, default_value_t = 24)]
     max_samples: usize,
-    /// Search radius (default: unlimited).
+    /// Most data (and simulated nodes) per octant (GSLIB `noct`; default: no octant search).
+    #[arg(long)]
+    per_octant: Option<NonZeroUsize>,
+    /// Search radius along the major axis (default: unlimited).
     #[arg(long, default_value_t = f64::INFINITY)]
     radius: f64,
+    /// Radius along the minor horizontal axis (GSLIB `radius1`; default: --radius).
+    #[arg(long)]
+    radius_minor: Option<f64>,
+    /// Radius along the vertical axis (GSLIB `radius2`; default: --radius).
+    #[arg(long)]
+    radius_vertical: Option<f64>,
+    /// Orientation `AZIMUTH:DIP:PLUNGE` in degrees (GSLIB `sang1..3`).
+    #[arg(long, value_parser = spec::parse_angles, allow_hyphen_values = true)]
+    search_angles: Option<Angles>,
 }
 
 impl SearchArgs {
-    /// An isotropic search keeping the nearest `max_samples` (no minimum
-    /// yet; anisotropy, octants and `ndmin` flags are to come).
-    fn search(self) -> AppResult<DataSearch> {
-        Ok(DataSearch::new(
-            SearchEllipsoid::isotropic(self.radius)?,
-            0,
-            self.max_samples,
+    /// The search ellipsoid: a sphere unless minor or vertical radii or
+    /// angles are given, in which case every radius must be finite.
+    fn ellipsoid(self) -> AppResult<SearchEllipsoid> {
+        if self.radius_minor.is_none()
+            && self.radius_vertical.is_none()
+            && self.search_angles.is_none()
+        {
+            return Ok(SearchEllipsoid::isotropic(self.radius)?);
+        }
+        if !self.radius.is_finite() {
+            return Err("an anisotropic search needs a finite --radius".into());
+        }
+        Ok(SearchEllipsoid::new(
+            self.search_angles.unwrap_or_default(),
+            Ranges {
+                major: self.radius,
+                minor: self.radius_minor.unwrap_or(self.radius),
+                vertical: self.radius_vertical.unwrap_or(self.radius),
+            },
         )?)
+    }
+
+    fn search(self) -> AppResult<DataSearch> {
+        let search = DataSearch::new(self.ellipsoid()?, self.min_samples, self.max_samples)?;
+        Ok(match self.per_octant {
+            Some(n) => search.with_octants(n)?,
+            None => search,
+        })
+    }
+}
+
+/// What `krige` writes where a target has too few data (GSLIB `ndmin`).
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TooFew {
+    /// Fail, naming the target.
+    Error,
+    /// Write the --unest code, as GSLIB kt3d does.
+    Unestimated,
+}
+
+/// How simulation uses the data (GSLIB `sstrat`) and the node table.
+#[derive(Debug, Clone, Copy, Args)]
+struct ConditioningArgs {
+    /// Move each datum to its nearest node and search only nodes (GSLIB sstrat = 1).
+    #[arg(long)]
+    assign_data: bool,
+    /// With --assign-data: two data on one node.
+    #[arg(long, value_enum, default_value_t = SharedNode::Error, requires = "assign_data")]
+    on_shared_node: SharedNode,
+    /// With --assign-data: a datum outside the grid.
+    #[arg(long, value_enum, default_value_t = Outside::Error, requires = "assign_data")]
+    outside_grid: Outside,
+    /// Extent of the previously-simulated-node table.
+    #[arg(long, value_enum, default_value_t = NodeTable::Ellipsoid)]
+    node_table: NodeTable,
+}
+
+/// `--on-shared-node`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SharedNode {
+    /// Fail, naming both data and the node.
+    Error,
+    /// Keep the datum closer to the node (GSLIB; the later on a tie).
+    KeepClosest,
+}
+
+/// `--outside-grid`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Outside {
+    /// Fail, naming the datum.
+    Error,
+    /// Move it to the nearest edge node (GSLIB).
+    Clamp,
+}
+
+/// `--node-table`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum NodeTable {
+    /// The whole search ellipsoid.
+    Ellipsoid,
+    /// GSLIB sgsim's compile-time limits: +-35 nodes in x and y, none in z.
+    Gslib,
+}
+
+impl ConditioningArgs {
+    const fn data(self, search: &DataSearch) -> DataConditioning<'_> {
+        if self.assign_data {
+            DataConditioning::AssignToNodes {
+                shared: match self.on_shared_node {
+                    SharedNode::Error => OnSharedNode::Error,
+                    SharedNode::KeepClosest => OnSharedNode::KeepClosest,
+                },
+                outside: match self.outside_grid {
+                    Outside::Error => OutsideGrid::Error,
+                    Outside::Clamp => OutsideGrid::ClampToEdge,
+                },
+            }
+        } else {
+            DataConditioning::Search(search)
+        }
+    }
+
+    const fn extent(self) -> TableExtent {
+        match self.node_table {
+            NodeTable::Ellipsoid => TableExtent::Ellipsoid,
+            // SGSIM.INC: MAXCTX = MAXCTY = 71, MAXCTZ = 1.
+            NodeTable::Gslib => TableExtent::Gslib { max: [71, 71, 1] },
+        }
     }
 }
 
@@ -163,20 +284,22 @@ impl GridArgs {
         Ok(Grid::new(self.grid_x, self.grid_y, self.grid_z)?)
     }
 
-    /// The node search over `grid`, with the data search's ellipsoid.
+    /// The node search over `grid`, with the data search's ellipsoid and
+    /// octant limit, as in GSLIB.
     fn node_search(
         self,
         grid: &Grid,
-        search: &DataSearch,
+        search: &SearchArgs,
+        conditioning: ConditioningArgs,
         model: &CovarianceModel,
     ) -> AppResult<NodeSearch> {
         Ok(NodeSearch::new(
             grid,
-            search.ellipsoid(),
+            &search.ellipsoid()?,
             model,
             self.max_nodes,
-            None,
-            TableExtent::Ellipsoid,
+            search.per_octant,
+            conditioning.extent(),
         )?)
     }
 }
@@ -266,6 +389,12 @@ struct KrigeArgs {
     model: ModelArgs,
     #[command(flatten)]
     search: SearchArgs,
+    /// What to do where a target has fewer than --min-samples data.
+    #[arg(long, value_enum, default_value_t = TooFew::Error)]
+    on_too_few: TooFew,
+    /// Code written for unestimated targets (GSLIB kt3d's UNEST).
+    #[arg(long, default_value_t = -999.0, allow_negative_numbers = true)]
+    unest: f64,
     /// Output file: target columns plus `estimate` and `variance`.
     #[arg(long)]
     out: PathBuf,
@@ -282,6 +411,8 @@ struct SgsimArgs {
     missing: MissingArgs,
     #[command(flatten)]
     grid: GridArgs,
+    #[command(flatten)]
+    conditioning: ConditioningArgs,
     /// Normal-score variogram model (its sill should be 1).
     #[command(flatten)]
     model: ModelArgs,
@@ -308,6 +439,8 @@ struct SisimArgs {
     missing: MissingArgs,
     #[command(flatten)]
     grid: GridArgs,
+    #[command(flatten)]
+    conditioning: ConditioningArgs,
     /// Threshold: indicator is 1 where the value is below it.
     #[arg(long)]
     threshold: f64,
@@ -439,11 +572,18 @@ fn krige(args: &KrigeArgs) -> AppResult {
     // parallel, with results independent of the thread count (D-030).
     let index = SuperBlock::new(&samples);
 
-    let estimates = match args.kind {
+    let policy = match args.on_too_few {
+        TooFew::Error => OnTooFewData::Error,
+        TooFew::Unestimated => OnTooFewData::Unestimated,
+    };
+    let estimates: Vec<Option<Estimate>> = match args.kind {
         KrigingType::Ordinary => {
             let model = args.model.variogram()?;
             try_map(&targets, |&t| {
-                ordinary_kriging(&search.select_samples(&index, t)?, t, &model)
+                policy
+                    .resolve(search.select_samples(&index, t))?
+                    .map(|near| ordinary_kriging(&near, t, &model))
+                    .transpose()
             })?
         }
         KrigingType::Simple => {
@@ -453,15 +593,19 @@ fn krige(args: &KrigeArgs) -> AppResult {
                 None => mean_value(&samples).ok_or("no data to compute the mean from")?,
             };
             try_map(&targets, |&t| {
-                simple_kriging(&search.select_samples(&index, t)?, t, &model, mean)
+                policy
+                    .resolve(search.select_samples(&index, t))?
+                    .map(|near| simple_kriging(&near, t, &model, mean))
+                    .transpose()
             })?
         }
     };
-    let value: Vec<f64> = estimates.iter().map(|e| e.value).collect();
-    let variance: Vec<f64> = estimates.iter().map(|e| e.variance).collect();
+    let code = MissingCode::new(args.unest)?;
+    let value: Vec<Option<f64>> = estimates.iter().map(|e| e.map(|e| e.value)).collect();
+    let variance: Vec<Option<f64>> = estimates.iter().map(|e| e.map(|e| e.variance)).collect();
     let out = targets_file
-        .with_column("estimate", &value)?
-        .with_column("variance", &variance)?;
+        .with_optional_column("estimate", &value, code)?
+        .with_optional_column("variance", &variance, code)?;
     write_gslib(&args.out, &out)?;
     Ok(())
 }
@@ -484,9 +628,11 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
         .ok();
     }
     let search = args.search.search()?;
-    let nodes = args.grid.node_search(&grid, &search, &model)?;
+    let nodes = args
+        .grid
+        .node_search(&grid, &args.search, args.conditioning, &model)?;
     let searches = Searches {
-        data: DataConditioning::Search(&search),
+        data: args.conditioning.data(&search),
         nodes: &nodes,
     };
     let table = grid_table(data_file.title(), &grid)?;
@@ -518,9 +664,11 @@ fn simulate_indicator(args: &SisimArgs) -> AppResult {
     let grid = args.grid.grid()?;
     let model = args.model.covariance()?;
     let search = args.search.search()?;
-    let nodes = args.grid.node_search(&grid, &search, &model)?;
+    let nodes = args
+        .grid
+        .node_search(&grid, &args.search, args.conditioning, &model)?;
     let searches = Searches {
-        data: DataConditioning::Search(&search),
+        data: args.conditioning.data(&search),
         nodes: &nodes,
     };
     let table = grid_table(data_file.title(), &grid)?;

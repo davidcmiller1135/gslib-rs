@@ -45,7 +45,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}` (with weights: `*_solution`), `krige` CLI; point SK/OK parity fixtures with search and weights (F-015) | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
-| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock, NodeSearch}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block, `sgsim`'s node search; `kt3d` parity fixtures (F-015) and the two-part search (`assign_to_nodes`, `DataConditioning::AssignToNodes`) (`docs/spec/search.md` steps 1–5) | CLI flags for anisotropy, octants, `ndmin` and the two-part search |
+| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock, NodeSearch}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block, `sgsim`'s node search; `kt3d` parity fixtures (F-015) and the two-part search (`assign_to_nodes`, `DataConditioning::AssignToNodes`) (`docs/spec/search.md` steps 1–5), with CLI flags | k-d tree (ROADMAP §5) |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
 

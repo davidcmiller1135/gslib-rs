@@ -413,4 +413,176 @@ mod cli {
             "+Inf clamps to the largest value, 3"
         );
     }
+
+    /// A command's outcome: its parsed output, or its error message.
+    enum Run<T> {
+        Done(T),
+        Failed(String),
+    }
+
+    impl<T: std::fmt::Debug> Run<T> {
+        fn unwrap(self) -> T {
+            match self {
+                Self::Done(v) => v,
+                Self::Failed(e) => panic!("command failed: {e}"),
+            }
+        }
+
+        fn unwrap_err(self) -> String {
+            match self {
+                Self::Done(v) => panic!("command succeeded with {v:?}"),
+                Self::Failed(e) => e,
+            }
+        }
+    }
+
+    /// Krige one target at the origin from `data`, with extra flags; the
+    /// estimate and variance written.
+    fn krige_origin(data: &str, extra: &[&str]) -> Run<(f64, f64)> {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", data);
+        let targets = write(&dir, "t.dat", "targets\n3\nX\nY\nZ\n0 0 0\n");
+        let out = dir.path().join("k.dat");
+        let result = bin()
+            .args(["krige", "--structure", "sph:1:50"])
+            .arg("--data")
+            .arg(&data)
+            .arg("--targets")
+            .arg(&targets)
+            .arg("--out")
+            .arg(&out)
+            .args(extra)
+            .output()
+            .unwrap();
+        if !result.status.success() {
+            return Run::Failed(String::from_utf8_lossy(&result.stderr).into_owned());
+        }
+        let (names, rows) = read(&out);
+        assert_eq!(names[3..], ["estimate", "variance"]);
+        Run::Done((rows[0][3], rows[0][4]))
+    }
+
+    const CROSS: &str = "cross\n4\nX\nY\nZ\nV\n5 0 0 1\n-5 0 0 1\n0 5 0 10\n0 -5 0 10\n";
+
+    #[test]
+    fn an_anisotropic_search_selects_along_its_axis() {
+        // Isotropic: all four data, equal weights by symmetry: 5.5. A
+        // search elongated east-west (azimuth 90, minor radius 1) keeps only
+        // the two data on the x axis, both 1.
+        let (iso, _) = krige_origin(CROSS, &[]).unwrap();
+        assert!((iso - 5.5).abs() < 1e-9, "{iso}");
+        let east_west = [
+            "--radius",
+            "10",
+            "--radius-minor",
+            "1",
+            "--search-angles",
+            "90:0:0",
+        ];
+        let (along_x, _) = krige_origin(CROSS, &east_west).unwrap();
+        assert!((along_x - 1.0).abs() < 1e-9, "{along_x}");
+        // North-south instead: the two 10s.
+        let north_south = [
+            "--radius",
+            "10",
+            "--radius-minor",
+            "1",
+            "--search-angles",
+            "0:0:0",
+        ];
+        let (along_y, _) = krige_origin(CROSS, &north_south).unwrap();
+        assert!((along_y - 10.0).abs() < 1e-9, "{along_y}");
+        // An anisotropic search needs a finite radius.
+        let err = krige_origin(CROSS, &["--radius-minor", "1"]).unwrap_err();
+        assert!(err.contains("finite --radius"), "{err}");
+    }
+
+    #[test]
+    fn octants_limit_data_per_direction() {
+        // Three data east (1, 2, 3) and one west (10). The nearest two are
+        // both east; one per octant takes the nearest east and the west.
+        let data = "line\n4\nX\nY\nZ\nV\n1 0 0 1\n2 0 0 2\n3 0 0 3\n-4 0 0 10\n";
+        let (nearest, _) = krige_origin(data, &["--max-samples", "2"]).unwrap();
+        assert!((1.0..=2.0).contains(&nearest), "{nearest}");
+        let (octants, _) =
+            krige_origin(data, &["--max-samples", "2", "--per-octant", "1"]).unwrap();
+        assert!(octants > 2.0, "the west datum enters: {octants}");
+    }
+
+    #[test]
+    fn too_few_data_fail_or_are_written_as_unest() {
+        // Two data required within radius 3 of the origin; none are.
+        let flags = ["--min-samples", "2", "--radius", "3"];
+        let err = krige_origin(CROSS, &flags).unwrap_err();
+        assert!(err.contains("only 0 data within the search"), "{err}");
+        let unest = [&flags[..], &["--on-too-few", "unestimated"]].concat();
+        assert_eq!(krige_origin(CROSS, &unest).unwrap(), (-999.0, -999.0));
+        let custom = [&unest[..], &["--unest", "-99"]].concat();
+        assert_eq!(krige_origin(CROSS, &custom).unwrap(), (-99.0, -99.0));
+    }
+
+    /// Run sgsim on a 3 x 3 grid of spacing 5 with `data` and extra flags.
+    fn sgsim_with(data: &str, extra: &[&str]) -> Run<Vec<f64>> {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", data);
+        let prefix = dir.path().join("s");
+        let result = bin()
+            .args(["sgsim", "--grid-x", "3:0:5", "--grid-y", "3:0:5"])
+            .args(MODEL)
+            .arg("--data")
+            .arg(&data)
+            .arg("--out-prefix")
+            .arg(&prefix)
+            .args(extra)
+            .output()
+            .unwrap();
+        if !result.status.success() {
+            return Run::Failed(String::from_utf8_lossy(&result.stderr).into_owned());
+        }
+        Run::Done(column(&read(&realization(&prefix, 0)).1, 3))
+    }
+
+    #[test]
+    fn the_two_part_search_and_its_policies() {
+        // Data near nodes 0 (0, 0) and 4 (5, 5): moved there and held.
+        let near = "d\n4\nX\nY\nZ\nV\n0.4 0.3 0 1\n5.2 4.9 0 3\n2 2 0 2\n";
+        let shared = sgsim_with(near, &["--assign-data"]).unwrap_err();
+        assert!(
+            shared.contains("both fall on node 1"),
+            "(0.4, 0.3) and (2, 2) share node 1: {shared}"
+        );
+        let held =
+            sgsim_with(near, &["--assign-data", "--on-shared-node", "keep-closest"]).unwrap();
+        assert!(
+            (held[0] - 1.0).abs() < 1e-9 && (held[4] - 3.0).abs() < 1e-9,
+            "{held:?}"
+        );
+        // A datum off the grid.
+        let far = "d\n4\nX\nY\nZ\nV\n0 0 0 1\n40 0 0 3\n";
+        let outside = sgsim_with(far, &["--assign-data"]).unwrap_err();
+        assert!(outside.contains("outside the simulation grid"), "{outside}");
+        let clamped = sgsim_with(far, &["--assign-data", "--outside-grid", "clamp"]).unwrap();
+        assert!(
+            (clamped[2] - 3.0).abs() < 1e-9,
+            "clamped to node (10, 0): {clamped:?}"
+        );
+        // The policies require --assign-data.
+        let needs_flag = sgsim_with(far, &["--outside-grid", "clamp"]).unwrap_err();
+        assert!(needs_flag.contains("--assign-data"), "{needs_flag}");
+        // --per-octant also limits the node search, as GSLIB's noct does:
+        // with one datum the data search is unaffected, so a different
+        // realization from the same seed can only come from the nodes.
+        // Linear tails keep the back-transform from mapping every score to
+        // the single datum.
+        let one = "d\n4\nX\nY\nZ\nV\n0 0 0 1\n";
+        let tails = ["--zmin", "0", "--zmax", "10"];
+        let all_nodes = sgsim_with(one, &tails).unwrap();
+        let by_octant = sgsim_with(one, &[&tails[..], &["--per-octant", "1"]].concat()).unwrap();
+        assert_ne!(all_nodes, by_octant, "octants change the node search");
+        // GSLIB's node table runs too.
+        assert_eq!(
+            sgsim_with(far, &["--node-table", "gslib"]).unwrap().len(),
+            9
+        );
+    }
 }

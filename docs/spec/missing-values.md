@@ -104,11 +104,9 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
    and `sisim`; 4 unit and 4 end-to-end tests).
    - `--tmin`/`--tmax`/`--no-trimming`, `--nan`, `--inf`, `--unest` on
      commands that read data.
-   - **Deferred: `--unest`.** No current command writes one result per data
-     row (kriging and simulation write per target or node), so the flag
-     would do nothing yet. It arrives with the first row-aligned output,
-     e.g. an `nscore` command or a kriging `OnSingular` skip policy, using
-     `MissingCode` with that program's default (D-023).
+   - **`--unest`** arrived with `krige --on-too-few unestimated` (one result
+     per target, default −999 as `kt3d`, D-023). Commands that write one
+     result per *data* row (e.g. an `nscore` command) will use it too.
    - The guard checks the value column only: coordinates are never trimmed
      (D-022), so `--tmin` could not help with a coordinate of −999. A
      missing limit is unbounded on its side (`--tmin -998` alone keeps

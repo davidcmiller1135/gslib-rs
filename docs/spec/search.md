@@ -1,6 +1,6 @@
 # Spec: Search neighbourhoods
 
-Status: **implemented** (decisions D-024 to D-028; evidence F-012, F-013, F-015). Plan steps 1–6 done; CLI flags for the search options remain.
+Status: **implemented** (decisions D-024 to D-028; evidence F-012, F-013, F-015). Plan steps 1–6 done, with CLI flags for every option.
 
 ## Purpose
 
