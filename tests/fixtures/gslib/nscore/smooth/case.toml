@@ -1,0 +1,8 @@
+schema = 1
+program = "nscore"
+description = "60 untied values with a smooth trend: scores depend only on rank, so they match up to gauinv's approximation error."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+variable_column = 4

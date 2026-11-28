@@ -170,9 +170,36 @@ impl Anisotropy {
     /// Anisotropic distance between two points, in units of the major range.
     #[must_use]
     pub fn scaled_distance(&self, a: Point3, b: Point3) -> f64 {
+        norm(self.scaled(a, b))
+    }
+
+    /// The square of [`Anisotropy::scaled_distance`], computed without a
+    /// square root, as GSLIB's `sqdist` does (search limits compare it with
+    /// `radius²`).
+    #[must_use]
+    pub fn squared_scaled_distance(&self, a: Point3, b: Point3) -> f64 {
+        let v = self.scaled(a, b);
+        dot(v, v)
+    }
+
+    /// The smallest factor by which the map stretches any direction:
+    /// `scaled_distance(a, b) ≥ smallest_scale() · |a − b|` for all points.
+    ///
+    /// The rows are the principal axes (unit vectors) times their scale
+    /// factors, so this is the smallest row norm: 1 when the major range is
+    /// the largest, as GSLIB assumes.
+    #[must_use]
+    pub fn smallest_scale(&self) -> f64 {
+        self.rows
+            .iter()
+            .map(|&r| norm(r))
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    fn scaled(&self, a: Point3, b: Point3) -> [f64; 3] {
         let d = a.delta(b);
         let [r0, r1, r2] = self.rows;
-        norm([dot(r0, d), dot(r1, d), dot(r2, d)])
+        [dot(r0, d), dot(r1, d), dot(r2, d)]
     }
 }
 
@@ -344,6 +371,43 @@ mod tests {
             let rot = Rotation2::new((ox, oy), angle);
             let (bx, by) = rot.to_original(rot.to_rotated((x, y)));
             prop_assert!((bx - x).abs() < 1e-9 && (by - y).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn smallest_scale_bounds_the_stretch() {
+        assert_eq!(
+            Anisotropy::isotropic().smallest_scale().to_bits(),
+            1.0_f64.to_bits()
+        );
+        // Ranges 10, 20, 5: scales 1, 0.5 and 2.
+        let a = Anisotropy::new(
+            Angles {
+                azimuth: 35.0,
+                dip: -10.0,
+                plunge: 15.0,
+            },
+            Ranges {
+                major: 10.0,
+                minor: 20.0,
+                vertical: 5.0,
+            },
+        )
+        .unwrap();
+        assert!(
+            (a.smallest_scale() - 0.5).abs() < 1e-15,
+            "{}",
+            a.smallest_scale()
+        );
+        let o = Point3::default();
+        for p in [
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.3, -2.0, 0.7),
+            Point3::new(-4.0, 1.0, 9.0),
+        ] {
+            assert!(a.scaled_distance(p, o) >= a.smallest_scale() * p.distance(o) * (1.0 - 1e-12));
+            let sq = a.squared_scaled_distance(p, o);
+            assert!((sq.sqrt() - a.scaled_distance(p, o)).abs() < 1e-12);
         }
     }
 }

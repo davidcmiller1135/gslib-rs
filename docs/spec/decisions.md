@@ -385,3 +385,1121 @@ Read from `vendor/gslib-2.0/src/GSLIB/SETROT.FOR`, `GSLIB/COVA3.FOR` and
   is below `EPSLON = 1.e-10`, i.e. within about 1e-5 in rotated, scaled
   units. gslib-rs uses Euclidean distance below 1e-10. Recorded in ROADMAP
   §2; exact parity needs a policy for it.
+
+## Finding F-005: First reference build (2026-11-27)
+From `cargo xtask oracle build` (rewrite rules v1, `xtask/src/rewrite.rs`) in
+this environment:
+- **Compiler:** `GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`.
+- **Flags:** `-fdefault-real-8 -fdefault-double-8 -std=legacy -fno-automatic
+  -O0 -ffp-contract=off -ffixed-line-length-none` (rationale in
+  `xtask/src/main.rs`).
+- **Result:** all 39 programs and the 37-routine library build. 504
+  `fW.D` output descriptors were widened to `es25.16e3`; 41 internal writes
+  (to character variables) were left alone.
+- **Smoke runs** with each program's shipped `.par` and the book data:
+  `nscore` and `vmodel` run to completion and write full double precision
+  (e.g. `-2.5251759342224709E+000`).
+- **nscore despiking**, from `NSCORE/NSCORE.FOR`:
+  - line 179 adds `acorni(idum)*dble(EPSLON)` to **every** datum, with
+    `EPSLON = 1.0e-6` (line 31);
+  - the generator is seeded with `ixv(1) = 69069` (line 142);
+  - ties are therefore broken by random perturbations up to 1e-6, not by
+    sort order. Visible in the smoke run: datum `.06` becomes
+    `6.0000021160891280E-002` in the transformation table.
+- **Consequence for plan step 5:** transformation-table values legitimately
+  differ from the data by up to 1e-6, so that comparison needs an absolute
+  tolerance of 1e-6 justified by this line (D-010). Scores of tie-free data
+  separated by more than 1e-6 are unaffected.
+
+## D-014: Identifying the recipe in provenance
+- Status: decided
+- Topic: harness.md (R6)
+- Question: Fixtures recorded `recipe_commit`, but squash merges leave branch
+  commits unreachable from `main`. How should provenance identify the recipe?
+- Options: a content hash of the recipe files; merge commits for fixture
+  PRs; land recipe changes on `main` before generating.
+- Decision: **content hash.** `provenance.toml` gains `recipe_sha256`, from
+  `oracle_case::recipe_sha256`: SHA-256 over the path and contents of every
+  file in `RECIPE_FILES` (`xtask/`, `oracle-case/`, the vendored manifest,
+  `Cargo.toml`, `Cargo.lock`). `recipe_commit` stays, as information only.
+- Rationale: content survives squashing, so provenance stays verifiable on
+  `main` indefinitely.
+- Consequences: `cargo xtask oracle status` lists any fixture whose
+  `recipe_sha256` differs from the current recipe; such fixtures are still
+  valid. (The fixture test also prints a note, but `cargo test` hides output
+  from passing tests, so `status` is the place to look.) Generation still
+  refuses uncommitted recipe changes.
+
+## Finding F-006: vmodel parity (plan step 4, 2026-11-27)
+From `VMODEL/VMODEL.FOR` and the first fixtures (8 cases in
+`tests/fixtures/gslib/vmodel/`):
+
+**How `vmodel` works** (read from the source):
+- **Points:** for `il = 1..nlag+1` it evaluates
+  `(il−1)·(sin(azm)cos(dip), cos(azm)cos(dip), sin(dip))·lag`, with
+  `DEG2RAD = 3.14159265/180`.
+- **The repeated row:** row `il = 1` is written twice; the second evaluates
+  `0.0001·offset` but prints the first row's `h`.
+- **Columns:** the fourth is `ndir`, not the direction index;
+  `gam = maxcov − cov`.
+- **Power structures:** `a_hmax` holds ω, and `anis = a_hmin/ω`.
+
+**Results** (worst |Δ| ÷ sill, with the cause):
+| Case | Worst | Cause |
+|---|---|---|
+| Spherical, exponential, Gaussian isotropic; anisotropic along the axes | ≤ 1.4e-16 | machine precision |
+| Power without nugget | 1.1e-13 | GSLIB's `maxcov − cov` includes `PMX = 999`, costing ≈ ε·1000 absolute |
+| Anisotropic, rotated | 4.3e-12 | `setrot`'s π = 3.141592654; derived bound ≈ 1e-9 |
+| Hole effect | 8.974e-9 | `cova3`'s `PI = 3.14159265`; derived bound cc·(h/a)·3.59e-9 = 8.97e-9 at h/a = 2.5, which the measurement matches |
+
+**GSLIB defect: the power model loses its nugget.**
+- `COVA3.FOR` adds `cmax` (which contains `c0`) once per power structure, so
+  `gam = maxcov − cov` cancels the nugget.
+- Measured: GSLIB's γ is `cc·h^ω`, and gslib-rs's minus GSLIB's is exactly
+  `c0 = 0.1` (±6e-14) at all 42 points with h > 0.
+- gslib-rs keeps the nugget (`AGENTS.md`, *Do not treat legacy agreement as
+  proof of correctness*). Case `power_with_nugget` documents the defect as an
+  expected deviation.
+- Not yet checked: whether nested power structures (each adding `cmax`)
+  compound it.
+
+**The harness catches the bug it was built for:** restoring the pre-F-004
+Gaussian formula makes the vmodel test fail with 63 mismatches.
+
+## D-015: Calibrating the default tolerance for direct formulas
+- Status: decided
+- Topic: harness.md (R7, D-010)
+- Question: D-010's default of 1e-12 for direct formulas was provisional.
+  Does the evidence support it?
+- Options: keep 1e-12; tighten towards the measured errors; loosen.
+- Decision: **keep 1e-12**, applied relative to the sill for variogram
+  quantities.
+- Rationale: every vmodel case without a documented π divergence measured
+  ≤ 1.4e-16, except power at 1.1e-13 (explained by `PMX`). That leaves
+  margin without hiding real errors: the Gaussian bug alone produced 63
+  failures. The two π cases need explicit, derived overrides, and have them.
+- Consequences: k in k·cond(A)·ε (kriging) is still to be calibrated, in plan
+  step 7.
+
+## Finding F-007: nscore and backtr parity (plan step 5, 2026-11-27)
+From `NSCORE/NSCORE.FOR`, `BACKTR/BACKTR.FOR`, `GSLIB/{NSCORE,BACKTR,GAUINV,
+GCUM,POWINT}.FOR`, and 6 fixtures.
+
+**How GSLIB does it:**
+- **`nscore`:**
+  - trims data outside `[tmin, tmax)` (writing −999 for them) and drops
+    weights ≤ 1e-10;
+  - perturbs each datum by `acorni·1e-6` (F-005) and sorts;
+  - assigns `gauinv((cp + oldcp)/2)` with `cp += w/twt`;
+  - the second pass reseeds ACORN identically, so each datum is looked up
+    at exactly its own table node.
+- **`backtr`:**
+  - the interior is `powint(..., 1.0)`, linear in score space;
+  - tail option 1 is linear in **probability** between `(0, zmin)` and
+    `(gcum(y₁), vr₁)` (lower) or `(gcum(yₙ), vrₙ)` and `(1, zmax)` (upper);
+  - the result is clamped to `[zmin, zmax]`;
+  - `tmin`/`tmax` are read but never used.
+- **`gauinv`** is a rational approximation ("Kennedy & Gentle 1980, p. 95",
+  per its own comment); it returns ±1e10 for p < 1e-10 or p > 1 − 1e-10.
+- **`gcum`** is a polynomial approximation to Φ, exactly 0 or 1 for |x| > 6.
+
+**Measured accuracy** (dense grids, against gslib-rs's exact functions; the
+tests in `harness/src/gslib_math.rs` re-derive both):
+- `gauinv`: at most 1.501e-8;
+- `gcum`: at most 7.458e-8 absolute, with relative error in the tails up to
+  1.6e-3 near x = −4.5.
+
+**Results:**
+| Quantity | Worst | Fully explained by |
+|---|---|---|
+| nscore scores (smooth, skewed, weighted) | 1.498e-8 | `gauinv`: GSLIB's own arithmetic with ported `gauinv` reproduces its table to ≤ 1.8e-14 |
+| nscore table values | 9.79e-7 | despiking (< 1e-6, and always ≥ the datum) |
+| backtr interior | 8.9e-18 × range | machine precision |
+| backtr tails | 1.58e-4 absolute | `gcum`: GSLIB's tail formula with ported `gcum` reproduces its output to 1.4e-16 × range |
+
+**Ties:** in the `ties` case, scores are declared expected deviations. The
+order of distinct values and the despiked table values still match.
+
+**Mutation checks:**
+- using the cumulative endpoint instead of the midpoint in
+  `normal_scores`: 384 mismatches;
+- dropping the lower-tail scaling in `BackTransform`: 11 mismatches.
+
+Also verified: the standard-normal constants in the `transform.rs` tests
+agree within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13).
+
+## D-016: Tolerances and explanation checks for nscore/backtr
+- Status: decided
+- Topic: harness.md (R7)
+- Question: How should results that go through GSLIB's approximations
+  (`gauinv`, `gcum`) be compared?
+- Options: loosen a global tolerance; per-quantity bounds derived from the
+  measured approximation error; port the approximations and compare against
+  GSLIB-as-ported.
+- Decision: **both of the last two:**
+  - compare gslib-rs with GSLIB using derived bounds:
+    - scores: absolute `GAUINV_MAX_ERROR` = 2e-8;
+    - table values: absolute 1e-6 (despiking);
+    - backtr interior: 1e-12 × (zmax − zmin);
+    - backtr tails: absolute `span·2ε/(p_edge − ε)` per point, with ε =
+      `GCUM_MAX_ERROR` = 7.5e-8;
+  - **and** run an *explanation check*: GSLIB's own formula, with the
+    ported approximation, must reproduce GSLIB's output at the direct
+    tolerance (1e-12).
+- Rationale: a bound alone shows a deviation is small enough. The
+  explanation check shows it has the stated cause, so a real bug can't hide
+  inside an approximation's tolerance.
+- Consequences:
+  - The bound constants are pinned by tests that fail if they are exceeded,
+    or are more than twice the measured error, so they can't quietly become
+    loose.
+  - The ports are test-only: gslib-rs keeps exact functions (ROADMAP §2).
+  - Use this pattern wherever GSLIB uses an approximation.
+
+## Finding F-008: gamv parity, omnidirectional semivariogram (plan step 6, 2026-11-27)
+From `GAMV/GAMV.FOR`, `GAMV/GAMV.INC` and 7 fixtures.
+
+**How `gamv` works** (read from the source):
+- **Lag classes:** `nlag + 2` classes.
+  - Class 1 holds pairs with h ≤ `EPSLON = 1e-20`.
+  - Class `il ≥ 2` holds h with `(il−2)·xlag − xltol ≤ h ≤ (il−2)·xlag +
+    xltol`, inclusive at both ends. Classes overlap if `xltol > xlag/2`, and
+    a pair is then added to every class it falls in (`lagbeg..lagend`).
+  - Pairs with h² > `((nlag + 0.5 − EPSLON)·xlag)²` are skipped.
+  - `xltol ≤ 0` silently becomes `xlag/2`.
+- **Pairs:** the loop is `j = i..nd`, so each datum is also paired with
+  itself (h = 0, class 1).
+- **Directions:** "omnidirectional" means `atol ≥ 90`. The azimuth, dip and
+  bandwidth tests still run (with `PI = 3.14159265`), and each accepted pair
+  is counted in both orderings, so `np` doubles while γ is unchanged.
+- **Output:** γ = ½·mean of (head − tail)²; `dis`, `hm`, `tm` are means over
+  the counted orderings; empty classes print zeros.
+- **Limits:** `MAXLAG = 200`, `MAXDAT = 10000`.
+
+**Results:**
+- All 7 cases (smooth, overlapping lags, 3-D grid, grid with separations on
+  class bounds, duplicates, two data, constant) agree to machine precision:
+  - γ within 1.4e-15 of the data variance;
+  - pair means within 4.3e-15;
+  - distances within 1.0e-13 × xlag.
+- Every pair count is exactly twice gslib-rs's.
+- The zero-distance class matches the exact self-pair relations:
+  - `np = 2(n + m)`;
+  - `γ = γ_ours·m/(n + m)`;
+  - means `(Σv + m·mean_ours)/(n + m)`.
+
+  These hold including `duplicates`, which has m = 5 coincident pairs.
+- GSLIB counts pairs lying exactly on a class bound in both classes,
+  confirming the inclusive bounds.
+
+**Mutation checks:**
+- ignoring overlap: 40 mismatches;
+- an exclusive upper bound **initially survived**, because no fixture had a
+  pair exactly on a bound. The `grid_3d_boundaries` case was added, and the
+  mutant now gives 22 mismatches.
+
+## D-017: Self-pairs and doubled counts in gamv
+- Status: decided. Chosen provisionally during implementation and confirmed
+  by the owner on 2026-11-27 ("count once"), with no legacy policy.
+- Topic: harness.md (step 6); `variogram::CentredLags`
+- Question: Should gslib-rs reproduce `gamv`'s self-pairs in the
+  zero-distance class, and its doubled omnidirectional pair counts?
+- Options:
+  1. reproduce both;
+  2. use distinct pairs only and count each pair once, checking GSLIB's
+     numbers through exact relations;
+  3. offer GSLIB's behaviour as an opt-in legacy policy.
+- Decision: **option 2.**
+- Rationale:
+  - Pairing a datum with itself always contributes a zero difference, which
+    dilutes γ in the zero-distance class: a defect, not information
+    (`AGENTS.md`, *Do not treat legacy agreement as proof of correctness*).
+  - Doubled counts are a reporting convention with no effect on γ.
+  - The harness verifies both differences exactly, so parity is
+    demonstrated, not assumed.
+- Consequences: listed in ROADMAP §2. A GSLIB-compatibility mode could
+  re-create either from gslib-rs's output with the relations in F-008, but
+  no opt-in policy is planned (option 3 was not chosen). Reopening this
+  would change only `CentredLags` and the gamv harness test.
+
+## Finding F-009: Missing values in GSLIB 2.0 (survey, 2026-11-27)
+From a grep of every program in `vendor/gslib-2.0/src/` (comparison patterns
+against `tmin`/`tmax`, and `UNEST` parameters), plus F-007 and F-008:
+
+- **Trimming convention:** most programs keep a value when
+  `tmin ≤ v < tmax` (half-open; `.lt.tmin`/`.ge.tmax` reject).
+- **Closed-interval exceptions:** `GAMV.FOR` rejects pairs with `v < tmin`
+  or `v > tmax` (keeping `v = tmax`) and builds indicators with `≤ tmin` /
+  `> tmax`. `SASIM.FOR` has 10 closed tests. `IK3D`, `SISIM_GS` and `BIVPLT`
+  have one each.
+- **"Unestimated" codes per program:**
+  - `UNEST = -999.0`: `kt3d`, `kb2d`, `cokb3d`, `postsim`;
+  - `-99.0`: `sgsim`, `sisim`, `sisim_gs`, `sisim_lm`, `postik`;
+  - `-1.0`: `lusim`, which can collide with real data.
+- **Other programs:**
+  - `nscore` writes a literal `-999.` for trimmed rows (F-007);
+  - `backtr` reads `tmin tmax` but never uses them (F-007);
+  - `gamv` keeps a record if *any* requested variable is in range, then
+    rejects pairs variable by variable (F-008).
+- **gslib-rs today:** `io::GslibData` holds raw `f64`s with no notion of
+  "missing", and `Sample` rejects only non-finite values, so a −999 in a data
+  file is silently treated as a real datum.
+
+## D-018: Where missingness is represented
+- Status: decided
+- Topic: missing-values.md
+- Question: Is `Option` created when parsing, when extracting columns, or
+  inside the algorithms?
+- Options: at extraction; at parse; inside the algorithms.
+- Decision: **at extraction.** `GslibData` stays a lossless picture of the
+  file (raw `f64`; read then write round-trips exactly). Applying an
+  explicit trimming value to a column yields `Vec<Option<f64>>`. Algorithms
+  receive only present data (`Sample` stays always-valid), and results tied
+  to input rows are returned as `Option`.
+- Rationale: confines sentinels and limits to the boundary (`AGENTS.md`,
+  *Missing values are `Option` in memory*), keeps the algorithms simple, and
+  keeps files round-trippable.
+- Consequences:
+  - A trimming type lives in `io`. The only way from a column to samples is
+    through it (or an explicit "no trimming").
+  - Row-aligned outputs (e.g. scores per input row) are `Vec<Option<f64>>`,
+    written back with a code by the writer.
+
+## D-019: The in-range interval
+- Status: decided
+- Topic: missing-values.md
+- Question: Which interval counts as "in range", given GSLIB's mix of
+  half-open and closed tests (F-009)?
+- Options: half-open everywhere; per program as GSLIB; closed everywhere.
+- Decision: **half-open everywhere:** a value is present when
+  `tmin ≤ v < tmax`.
+- Rationale: it is GSLIB's dominant rule (nscore, kt3d, sgsim, …), and one
+  rule means a file means the same data in every program (`AGENTS.md`,
+  *Conventions are domain law, defined once*).
+- Consequences: when `gamv` (multi-variable pair rejection), `sasim`,
+  `ik3d`, `sisim_gs` or `bivplt` is ported, its closed-interval tests are
+  listed as a divergence in ROADMAP §2. A legacy policy is added only if a
+  fixture shows the difference matters.
+
+## Finding F-010: Non-finite values through GSLIB's READ and trimming
+Probe (2026-11-27): a 4-line Fortran program using list-directed
+`read(*,*)` and `NSCORE.FOR`'s trimming test (reject if `v < tmin` or
+`v ≥ tmax`, limits ±1e21), compiled with gfortran 13.3.0
+`-fdefault-real-8`, fed `NaN Infinity -Infinity 1.5`:
+- **Reading:** gfortran reads all three non-finite tokens.
+- **`NaN`:** kept as data, because every comparison with NaN is false; it
+  then propagates through any arithmetic.
+- **`±Infinity`:** trimmed, i.e. treated as missing, but only because they
+  lie outside ±1e21.
+
+## D-020: Non-finite values in data files
+- Status: decided
+- Topic: missing-values.md
+- Question: How are NaN and ±Inf in a data file handled?
+- Options discussed (the user proposed policies rather than a fixed rule):
+  - error at extraction;
+  - treat as missing;
+  - reject at parse;
+  - per-kind policies, with ±Inf treated as tails in rank-based operations or
+    clamped to the column's range.
+- Decision:
+  - **an explicit non-finite policy at extraction**, set separately for NaN
+    and for ±Inf:
+    - NaN: `Error` | `Missing`;
+    - ±Inf: `Error` | `Missing` | `ClampToRange` (replaced by the finite
+      column min/max; opt-in only);
+  - **both default to `Error`**, naming the row and column;
+  - parsing keeps the values (M1, lossless).
+- Rationale:
+  - Explicit failure stays the default (`AGENTS.md`, precedence 2), and
+    every coercion is a named choice the caller makes, so `AGENTS.md` needs
+    no amendment.
+  - GSLIB's own behaviour (F-010) is inconsistent: NaN is kept as data,
+    ±Inf is trimmed by accident of its limits.
+- Consequences:
+  - `ClampToRange` changes the statistics (smaller variance, spikes at the
+    extremes), so its documentation must say so.
+  - Treating ±Inf as tails in *rank-based* operations (e.g. nscore) is
+    deferred to their design.
+  - The CLI gains flags for both policies.
+
+## D-021: CLI default when no trimming limits are given
+- Status: decided
+- Topic: missing-values.md
+- Question: What does the CLI do when no `--tmin`/`--tmax` are given?
+- Options: no limits plus a sentinel guard; require explicit limits; default
+  to GSLIB's customary ±1e21.
+- Decision: **no limits, plus a sentinel guard.** If a column the command
+  uses contains a value exactly −999 or −99, or a value with |v| ≥ 1e21, the
+  command fails and asks for `--tmin`/`--tmax`, or for `--no-trimming` to
+  confirm the values are real.
+- Rationale: it closes today's silent-sentinel bug (F-009) without making
+  every clean file need flags. Explicit failure (`AGENTS.md`, precedence 2).
+- Consequences:
+  - The guard is a CLI convenience only; the library always requires an
+    explicit trimming argument (M2).
+  - `lusim`'s −1 code is deliberately *not* in the list, because −1 is a
+    common real value.
+
+## D-022: Missingness is per cell; coordinates are never trimmed
+- Status: decided (follows from D-018; not asked separately)
+- Topic: missing-values.md
+- Decision: extraction is column-wise, so a value is missing per cell: in a
+  multi-variable record one variable may be missing while another is present
+  (as in `gamv`, F-008). Trimming applies to variables, never to
+  coordinates, as in GSLIB. A non-finite coordinate follows the D-020
+  policies.
+
+## D-023: Codes written for missing results
+- Status: decided
+- Topic: missing-values.md
+- Question: What code does a writer emit for a `None` in a row-aligned
+  output?
+- Options: GSLIB's per-program code except `lusim`; uniform −999; exactly
+  GSLIB's, including `lusim`'s −1.
+- Decision: **every writer takes the code as a setting (`--unest` in the
+  CLI), defaulting to GSLIB's code for that program:**
+  - −999: `kt3d`, `kb2d`, `cokb3d`, `postsim`, and `nscore`'s trimmed rows;
+  - −99: `sgsim`, `sisim*`, `postik`;
+  - `lusim`, exceptionally, defaults to **−999** instead of GSLIB's −1.0.
+- Rationale: outputs drop into existing GSLIB workflows (documented
+  parity). GSLIB's −1 in `lusim` can collide with real data, which would
+  make a missing result look like a measurement (`AGENTS.md`, precedence
+  1).
+- Consequences: the `lusim` default is listed in ROADMAP §2. A file
+  gslib-rs writes is subject to the sentinel guard (D-021) when read back,
+  so reusing an output deliberately requires stating the limits.
+
+## Finding F-011: Trimming parity for nscore and gamv (2026-11-27)
+From `vendor/gslib-2.0/src/` and four fixtures (missing-values plan step 4):
+
+- **`nscore`** keeps `tmin ≤ v < tmax` both when building the table
+  (`NSCORE.FOR` line 164) and when transforming each record (line 262),
+  and writes `-999.` for the other rows.
+- **`gamv` with one variable is half-open too.** `readdata` keeps a record
+  only if some requested variable satisfies `tmin ≤ v < tmax` (lines
+  254–259). The closed pair test (`v < tmin` or `v > tmax`, lines 622–625)
+  therefore rejects nothing more with one variable. F-009's closed-interval
+  note for `gamv` matters only with several variables (cross variograms), where a record
+  kept for one variable can carry an out-of-range value of another.
+- **Fixtures:**
+  - `nscore/with_sentinels`, `gamv/with_sentinels`: 40 values, 8 of them
+    −999, with `tmin = −998`;
+  - `nscore/limits_on_data`, `gamv/limits_on_data`: limits exactly equal to
+    two data values.
+
+  GSLIB keeps the datum at `tmin` (in `nscore`, it gets the lowest score)
+  and drops the one at `tmax` (written as −999). gslib-rs's `Extraction`
+  agrees:
+  - `nscore`: trimmed rows match row for row; present scores agree within
+    1.494e-8 (gauinv, D-016);
+  - `gamv`: γ, distances and means agree within 1.3e-15.
+- **Mutation checks:** an inclusive `tmax` and an exclusive `tmin` each
+  give 48 mismatches; ignoring the limits gives 101.
+- **Regeneration:** the 21 earlier fixtures, regenerated with the new
+  recipe, kept byte-identical GSLIB outputs.
+
+## Finding F-012: GSLIB 2.0's search neighbourhood (survey, 2026-11-27)
+From `vendor/gslib-2.0/src/`:
+
+- **Metric:** `sqdist` (`GSLIB/SQDIST.FOR`) is the squared distance after
+  the search rotation and scaling of `setrot`, built from the search's own
+  `radius, radius1, radius2` and `sang1..3`. These are independent of the
+  variogram model's anisotropy (`KT3D.FOR` lines 179–187 and 475; `SGSIM.FOR`
+  lines 196–204 and 756). A datum is within the search iff `hsqd ≤ radsqd`
+  (`SRCHSUPR.FOR`).
+- **Order:** candidates are sorted by `hsqd` with `sortem`, a quickersort
+  (ACM algorithm 271), which is not stable. Candidates arrive in super-block
+  order (`setsupr` re-sorts the data by super-block). Equidistant data
+  therefore come out in an order fixed by the super-block grid and the
+  quicksort, not by the input order.
+- **Octants** (`noct > 0`): applied to the sorted candidates *before* any
+  `ndmax` cut. At most `noct` per octant are kept, and the scan stops at
+  `8·noct`. A datum's octant follows the signs of `(dx, dy, dz)` = datum −
+  target, with boundary rules `dx ≤ 0 ∧ dy > 0`, `dx > 0 ∧ dy ≥ 0`,
+  `dx < 0 ∧ dy ≤ 0`, else, split by `dz < 0`. `sgsim`'s node search
+  (`srchnd`) uses target − node instead, so the two disagree on
+  which octant a point exactly on a boundary falls into.
+- **Truncation and minimum:**
+  - `kt3d` keeps the first `ndmax` accepted candidates. In cross-validation
+    it skips data within `EPSLON` (L1) of the target. With fewer than
+    `ndmin`, or no more than the number of drift terms, it writes `UNEST`
+    (lines 680–715).
+  - `sgsim` with `sstrat = 0` skips the node when `nclose < ndmin`, leaving
+    it unsimulated, then truncates to `ndmax` (lines 920–928).
+- **`sgsim`'s previously simulated nodes** come from a separate "spiral"
+  search (`ctable`, `srchnd`):
+  - grid offsets within the search ellipsoid are ordered by decreasing
+    covariance, with ties broken by anisotropic distance (`TINY·hsqd`);
+  - the first `nodmax` simulated nodes found are kept, optionally limited
+    per octant.
+  
+  With `sstrat = 1`, data are first assigned to their nearest nodes and only
+  nodes are searched.
+- **Super-blocks** (`picksup`): a super-block is searched if the smallest
+  `sqdist` over a 3×3×3 lattice of the difference box (its corners, edge
+  midpoints, face centres and centre) is within the radius. Under a rotated
+  anisotropic metric the true minimum can lie elsewhere on a face. The probe
+  `docs/spec/probes/picksup.py` finds offsets where the true minimum distance
+  is 21.2 but the lattice minimum is 25.6, against a radius of 25 (azimuth
+  20°, ratio 0.2, blocks of 10). **Confirmed by fixture** (F-015): GSLIB
+  misses data inside its own search ellipsoid.
+- **Debug output as an oracle:** `kt3d` with `idbg ≥ 2` writes, per
+  estimate, the data used, in order, with their weights (`5f12.3`, lines
+  993–1006).
+
+## D-024: Order of equidistant data in a search
+- Status: decided
+- Topic: search.md
+- Question: In what order does a search return data at exactly the same
+  anisotropic distance from the target, which decides which survive the
+  `ndmax` cut?
+- Options:
+  1. deterministic (distance, then input row), with GSLIB's order as an
+     opt-in;
+  2. deterministic only;
+  3. reproduce GSLIB's order (super-block data order plus `sortem`) by
+     default.
+- Decision: **option 1.** The default order is ascending squared
+  anisotropic distance, then ascending 0-based input row (a total order).
+  GSLIB's order is an opt-in, specified and built only when the
+  exact-stream parity spec (PLAN C5) needs it.
+- Rationale:
+  - GSLIB's tie order is an accident of its super-block grid and an
+    unstable quicksort (F-012), not a property of the data.
+  - A total order makes results reproducible and independent of the search
+    accelerator and thread count (`AGENTS.md`, precedence 1).
+  - Keeping GSLIB's order available preserves the route to exact stream
+    parity, an opt-in per `AGENTS.md`.
+- Consequences:
+  - Every neighbourhood implementation (brute force, super-block, k-d tree)
+    must return the same sequence for the same inputs. This is a property
+    test.
+  - A parity fixture where a tie straddles the `ndmax` (or octant) cut is
+    an expected deviation. It is checked as "GSLIB's selection is a valid
+    choice among the tied data", not skipped. Fixtures avoid such ties
+    unless they test exactly this.
+  - Ties elsewhere only change the order of the kriging system, which is
+    within rounding (D-010).
+
+## D-025: Super-block search equals brute force
+- Status: decided (the GSLIB defect it guards against is still blocked on
+  `TODO(parity-verify)`)
+- Topic: search.md
+- Question: Must the super-block search return exactly what brute force
+  returns, or reproduce GSLIB's `picksup` block selection?
+- Options:
+  1. exact, then verify GSLIB's miss with a fixture and document it;
+  2. exact, plus `picksup` as a legacy opt-in;
+  3. reproduce `picksup` by default.
+- Decision: **option 1.** Every accelerator returns exactly the
+  brute-force sequence (D-024) for the same inputs. There is no legacy
+  policy for `picksup`.
+- Rationale:
+  - An accelerator is a speed shortcut and must not change results
+    (`AGENTS.md`, precedence 1). Option 3 would make results depend on the
+    super-block grid, against D-024.
+  - If GSLIB skips data inside its own search ellipsoid (F-012
+    hypothesis), that is a defect to fix and document, not to reproduce
+    (`AGENTS.md`, *Do not treat legacy agreement as proof of correctness*).
+- Consequences:
+  - The super-block's block selection uses a conservative bound: the exact
+    minimum anisotropic distance between boxes, or a lower bound on it. It
+    can never exclude a block that holds an in-range datum.
+  - Property tests compare super-block against brute force on random data,
+    metrics and targets, including rotated, strongly anisotropic metrics
+    and targets outside the data's extent.
+  - A `kt3d` fixture is designed to trigger the probe's geometry. If GSLIB
+    misses the datum, a ROADMAP §2 row records the divergence; if not, the
+    hypothesis is withdrawn in F-012.
+
+## D-026: sgsim's node search is specified and built with the data search
+- Status: decided
+- Topic: search.md
+- Question: Does this spec also cover `sgsim`'s search of previously
+  simulated nodes (the covariance-ordered "spiral" table, `nodmax`,
+  octants, the two-part search)?
+- Options: specify here and build it with `sgsim`; data search only; specify
+  and build both now.
+- Decision: **specify and build both now**, in the same implementation
+  sequence as the data search.
+- Rationale: the owner's choice, so that one set of rules (order, octants,
+  exactness, errors) covers both searches, and `sgsim` work (harness step
+  8) starts with its search ready.
+- Consequences:
+  - The node search's order is a total order, in the spirit of D-024:
+    - decreasing covariance (GSLIB's `ctable` ranking);
+    - then increasing squared anisotropic distance (GSLIB's `TINY·hsqd`
+      tie-break, made explicit);
+    - then the grid offset's linear index.
+  - Octants in the node search follow `srchnd`'s own convention (target −
+    node, F-012). It differs from the data search only for nodes exactly on
+    an octant boundary, and is reproduced rather than unified (parity; not
+    a defect).
+  - Multiple-grid refinement (`mults`) changes the random path, not the
+    search, and stays with the `sgsim` and RNG specs.
+  - The implementation plan gains node-search steps, which come before
+    harness step 8 but do not block `kt3d` (step 7).
+
+## D-027: kt3d's debug output is an oracle for the search
+- Status: decided
+- Topic: search.md (and harness.md step 7)
+- Question: Is `kt3d`'s debug output (`idbg = 2`) used as a direct oracle
+  for the selected data?
+- Options: yes, with sets, order and weights; estimates only; set and order
+  only.
+- Decision: **yes.** `kt3d` fixtures write the debug file. Per estimate,
+  the harness checks:
+  - the selected set exactly, applying D-024's tie rule;
+  - the order of the selected data;
+  - the kriging weights, within D-010's tolerance.
+- Rationale: a wrong selection can change an estimate by less than its
+  tolerance (for example, swapping two data with nearly equal weights). A
+  direct check reports "wrong datum at estimate k" instead. Our recipe
+  already widens the `5f12.3` format to full precision (`rewrite.rs`, rule
+  2), so coordinates and values identify each datum exactly.
+- Consequences:
+  - `harness/` gains a parser for `kt3d`'s debug file. A datum is matched by
+    its coordinates and value. Duplicates at one location are an explicit
+    case: they are matched by count, not by identity.
+  - In GSLIB, debug entries are written only for estimates that were
+    solved, so unestimated locations are compared through the estimate
+    file alone.
+  - GSLIB lists data in its own order (D-024). Order is compared exactly
+    only where no two selected data are equidistant; within a tied group
+    the comparison is as a set.
+
+## D-028: Two data on one node in the two-part search
+- Status: decided
+- Topic: search.md
+- Question: With `sgsim`'s two-part search (`sstrat = 1`), data are moved
+  to their nearest nodes. What happens when two data land on the same
+  node?
+- Options: error by default with GSLIB's keep-closest as an opt-in; keep
+  the closest, like GSLIB; always an error.
+- Decision: **an error by default**, naming both data (1-based rows) and
+  the node. GSLIB's rule is the opt-in policy `OnSharedNode::KeepClosest`,
+  reproduced exactly: the smaller L1 distance from the datum to the node
+  wins, and on an exact tie the later datum wins (`SGSIM.FOR`, lines
+  869–881, `test.le.test2`).
+- Rationale: GSLIB drops a datum from the simulation with only a debug-file
+  warning, a silent coercion (`AGENTS.md`, *Silent coercions are opt-in,
+  off by default*). Keeping the rule as a policy lets a GSLIB-compatibility
+  mode run existing parameter files.
+- Consequences: the same rule, applied by `AGENTS.md` rather than asked,
+  covers a datum outside the grid. GSLIB clamps it to the edge node
+  (`getindx` ignores `inflag`, F-013); here that is an error, with the
+  clamping as the opt-in policy `OutsideGrid::ClampToEdge`.
+
+## Finding F-013: Silent limits in sgsim's search (2026-11-27)
+From `vendor/gslib-2.0/src/`:
+
+- **Data outside the grid, two-part search:** `getindx`
+  (`GSLIB/GETINDX.FOR`) clamps an index to `1..n` and reports it through
+  `inflag`. `sgsim` ignores the flag when assigning data to nodes
+  (`SGSIM.FOR`, lines 857–859), so a datum outside the grid is moved to
+  the edge node, however far away it lies.
+- **Node search extent:** `ctable` caps the lookup table at
+  `nctx = min((MAXCTX−1)/2, nx−1)`, and likewise for y and z (`SGSIM.FOR`,
+  around line 1087). The stock limits are `MAXCTX = MAXCTY = 71` and
+  `MAXCTZ = 1` (`SGSIM.INC`, line 38). Previously simulated nodes are never
+  searched beyond ±35 nodes horizontally, nor at all vertically (`nctz =
+  0`), whatever the search radius. GSLIB notes this only in its debug file
+  ("Node Values are not searched beyond this distance!").
+- **Consequence for fixtures:** the reference build uses the stock
+  `.INC` limits. `sgsim` fixtures (harness step 8) must use 2-D grids
+  within ±35 nodes of the search, or the recipe must patch the limits in
+  its copy (a source patch recorded in provenance).
+
+## D-029: The thread pool is rayon
+- Status: decided
+- Topic: parallelism.md
+- Question: Which thread pool does gslib-rs use for parallel execution?
+- Options: `rayon`; `std::thread::scope` only, with no dependency.
+- Decision: **`rayon`.**
+- Rationale: work stealing keeps cores busy when per-item costs vary (for
+  example, targets with different numbers of neighbours), and `par_iter`
+  over slices keeps the parallel code short. It is MIT/Apache licensed,
+  widely used, and exposes a safe API. A pool can be sized explicitly, which
+  the thread-count invariance tests (P1) need.
+- Consequences:
+  - The dependency (with `rayon-core` and `crossbeam-*`) must pass `cargo
+    deny check` when it is added.
+  - Determinism never relies on the scheduler: every reduction has a fixed
+    order (question 3), and errors are reported in item order (P2).
+
+## D-030: Parallel loops live in an opt-in library module
+- Status: decided
+- Topic: parallelism.md
+- Question: Where do the parallel loops live?
+- Options: a library module behind an opt-in feature; the same module on by
+  default; the CLI only.
+- Decision: **`gslib_rs::parallel`, behind a `parallel` cargo feature that is
+  off by default.** It holds parallel maps over the core's pure per-item
+  functions: kriging at many targets, blocks of pairs, and realizations. The
+  CLI enables the feature.
+- Rationale:
+  - It keeps parallel execution at the edge (`AGENTS.md`, *Isolate
+    boundaries*), and the core and the default build free of `rayon`.
+  - Library users and future bindings get the deterministic loops (the
+    fixed-order reductions, errors in item order) without rewriting them,
+    which the CLI-only option would force.
+- Consequences:
+  - The core's algorithms stay sequential and expose per-item functions
+    that the parallel module maps over. A parallel entry point must equal its
+    sequential counterpart (P1–P3).
+  - Builds and checks cover both configurations. Through the CLI, workspace
+    feature unification turns `parallel` on for `cargo test --workspace`,
+    and the existing `cargo clippy -p gslib_rs --no-default-features` check
+    covers the build without it.
+  - The sequential tests of each algorithm must still run without the
+    feature.
+
+## D-031: Variogram sums use fixed blocks combined in a fixed order
+- Status: decided
+- Topic: parallelism.md
+- Question: How does the parallel experimental variogram reduce its sums so
+  the result does not depend on the thread count?
+- Options: fixed blocks combined in a fixed order; exact (order-independent)
+  accumulation; keep the variogram sequential.
+- Decision: **fixed blocks, fixed order.** Pairs are grouped into blocks
+  whose boundaries are a constant of the algorithm, never derived from the
+  thread count. Each block accumulates its partial sums sequentially, and the
+  partial sums are combined in block order. **The sequential path uses the
+  same blocks**, so sequential and parallel results are bit-identical.
+- Rationale: precedence 1 at little cost. Exact accumulation would also give
+  order independence, but is several times slower per addition and more
+  code to verify, for a guarantee (independence from the blocking itself)
+  that the fixed constant already provides.
+- Consequences:
+  - The block layout is part of the numerical definition: changing it is a
+    numerical change, recorded and checked against the `gamv` fixtures.
+  - Results may differ from today's single loop in the last bits. They must
+    stay within the `gamv` fixtures' D-010 tolerances (a direct formula,
+    1e-12), which the harness checks.
+  - With pruning (question 4), a block is a set of rows (first data) with
+    their partners found through the super-block, enumerated in a fixed
+    order.
+
+## D-032: The experimental variogram always prunes far pairs
+- Status: decided
+- Topic: parallelism.md
+- Question: Should the experimental variogram skip pairs beyond its largest
+  lag, finding partners through the super-block?
+- Options: always prune; prune above a size threshold; no pruning.
+- Decision: **always prune**, sequentially and in parallel. Rows are taken
+  in D-031's fixed blocks; each row's partners come from a super-block
+  search within the lag scheme's largest distance, in a fixed order (the
+  search's order, D-024).
+- Rationale: one enumeration, so one numerical definition for every data
+  size. A size threshold would choose between two definitions whose last
+  bits differ, by data size. The super-block costs about 1.5 ms for 20 000
+  data (search spec step 2), which is negligible even for tiny inputs.
+- Consequences:
+  - `LagScheme` gains the largest separation any class admits. For GSLIB's
+    `CentredLags` that is `(nlag + 0.5)·xlag`; for `LagClasses`, its
+    maximum distance.
+  - **Pruning must be a superset.** The search radius is widened by a small
+    relative margin, and the lag scheme's own `classes(h)` still decides
+    each pair, so a pair exactly at the cut-off is never lost to rounding
+    between `q ≤ r²` and `h`. A property test (P4) checks that every lag's
+    pair count equals the unpruned loop's.
+  - The zero-distance class and overlapping lags are unchanged, since
+    pruning only removes pairs that belong to no class.
+
+## D-033: GPU acceleration: not now, evidence first
+- Status: decided
+- Topic: parallelism.md
+- Question: What is the stance on GPU acceleration?
+- Options: not now, evidence first; plan a mixed-precision `f32` path; rule
+  GPUs out.
+- Decision: **not now.** GPU work is an opt-in extension (ROADMAP §5),
+  taken up only after the parallel CPU paths exist, and only with a
+  benchmark showing that a GPU pair loop beats them on representative data.
+- Rationale:
+  - `f64` is slow on consumer GPUs and essentially absent in WebGPU.
+  - CUDA bindings rely on `unsafe`.
+  - Atomic reductions break thread-count invariance (precedence 1).
+  - CI has no GPU runners.
+  - Performance comes last in `AGENTS.md`'s precedence.
+- Consequences: any future GPU kernel must be:
+  - off by default, behind a feature;
+  - deterministic in its reduction;
+  - checked against the CPU result within a documented tolerance;
+  - covered by a GPU CI job (P6).
+  
+  An `f32` path would need its own spec, since it changes the `f64`
+  contract.
+
+## D-034: Variogram partners come in block order (supersedes part of D-032)
+- Status: decided; supersedes D-032's clause "in a fixed order (the
+  search's order, D-024)"
+- Topic: parallelism.md
+- Question: Should the pair enumeration visit each row's partners in
+  distance order (as committed) or in block order?
+- Options: block order; keep distance order.
+- Decision: **block order.** Grid blocks are visited in linear order, rows
+  ascending within a block, with no sorting and no per-row allocation
+  (`Blocks::visit_within`).
+- Rationale (benchmark, release build, 20 000 scattered 2-D data; seconds,
+  medians of 2–3 runs):
+
+  | Lags reach | All pairs | Distance order | Block order |
+  |---|---|---|---|
+  | 5% of the domain | 0.98 | 0.18 | 0.07 |
+  | 20% of the domain | 1.60 | 2.86 | 0.99 |
+
+  Distance order was *slower than no pruning* for long lags, because
+  sorting each row's partners dominates. Block order counts exactly the
+  same pairs, remains deterministic and independent of thread count, and
+  changes γ by 2e-16 to 6e-16 relative (1–3 ulps) against distance order.
+  Nothing released depends on the old bits.
+- Consequences:
+  - The data search keeps D-024's distance order, which kriging needs for
+    nearest-first truncation. Only the variogram's partner enumeration
+    changes.
+  - The block layout of the super-block grid joins D-031's row blocks as
+    part of the variogram's numerical definition.
+  - For lags reaching far, pruning gains little (0.99 s against 1.60 s);
+    parallel blocks (step 3) are the remaining lever.
+
+## Finding F-014: kt3d's point kriging (survey, 2026-11-28)
+From `vendor/gslib-2.0/src/KT3D/KT3D.FOR`, grid mode (`koption = 0`),
+point kriging (`nxdis = nydis = nzdis = 1`), simple (`ktype = 0`) and
+ordinary (`ktype = 1`) kriging:
+
+- **Data:**
+  - a record is kept iff `tmin ≤ v < tmax` (half-open, as D-019);
+  - a coordinate column of 0 means the grid origin (`xmn`), not 0 as in
+    `gamv` (lines 280–296).
+- **Targets:** node `(ix, iy, iz)` at `xmn + (ix−1)·xsiz` etc., x fastest.
+  Coordinates are shifted to `x − xloc + 0.5·xsiz` before kriging, for
+  conditioning only; the point being estimated is the node.
+- **Search:** `srchsupr`, then the first `ndmax` accepted candidates
+  (F-012). Fewer than `ndmin`: `UNEST = −999` for both estimate and
+  variance. The super-block grid is built from the *estimation* grid
+  (`setsupr`), so data outside the grid fall into edge blocks.
+- **System:**
+  - covariances from `cova3`, where `h < EPSLON` gives `C(0)` including the
+    nugget;
+  - for OK, the unbiasedness row and column hold `unbias = C(0)` instead
+    of 1, and the right-hand side holds `unbias`. The weights are
+    unchanged; the Lagrange multiplier is scaled by `unbias`;
+  - solved by `ktsol` (Gaussian elimination). A singular system gives
+    `UNEST`.
+- **Results:**
+  - SK: `est = skmean + Σ sᵢ (vᵢ − skmean)`;
+  - OK: `est = Σ sᵢ vᵢ`;
+  - variance for both: `estv = cbb − Σ sⱼ rⱼ`, with `cbb = C(0)` for a
+    point. It is not clamped, so it can be slightly negative.
+- **Too few data for the drift terms (lines 707–716):** a location with
+  `1 ≤ na ≤ mdt` is UNEST, where `mdt` counts OK's unbiasedness term as a
+  drift term: `mdt = 1` for OK, `0` for SK. **So OK with exactly one datum
+  is UNEST in GSLIB whatever `ndmin` says**, whereas gslib-rs estimates it
+  (weight 1, variance `2γ(h)`). Found by the `picksup_probe` fixture, which
+  first predicted single-datum OK estimates (correction to this finding's
+  first draft).
+- **One datum under SK (`na = 1`, lines 727–758):** no system is solved;
+  `est = v₁` and `estv = cbb − 2·C(h) + C(0)`. **This is a defect:** simple
+  kriging with one datum gives `skmean + (C(h)/C(0))·(v₁ − skmean)`, with
+  variance `C(0) − C(h)²/C(0)`. It is checked against GSLIB as an exact
+  relation and documented as a divergence (ROADMAP §2).
+- **Output:**
+  - `kt3d.out`: a Geo-EAS header, then `est estv` per node, x fastest
+    (`'(f9.3,1x,f9.3)'`, widened by the recipe);
+  - `kt3d.dbg` at `idbg ≥ 2`: for every node where a system was solved
+    (not for one datum, and not for UNEST), a `BLOCK:` line, the Lagrange
+    multiplier for OK, then one `x y z v weight` line per datum in search
+    order (`'(5f12.3)'`, widened), then `estimate, variance`. Coordinates
+    are recovered as `xa + xloc − 0.5·xsiz`, so they can differ from the
+    data file by rounding.
+
+## Finding F-015: kt3d parity for the search and point kriging (2026-11-28)
+Nine `kt3d` fixtures (search spec step 3, harness step 7), compared node by
+node (`harness/tests/kt3d.rs`):
+
+- **Search:** at every node of every fixture, GSLIB's selection (from
+  `kt3d.dbg`) equals gslib-rs's `DataSearch` restricted to the super-blocks
+  that a port of `setsupr`/`getindx`/`picksup` lets GSLIB examine. This
+  covers 1 764 + 8 × 64 nodes:
+  - isotropic and rotated anisotropic ellipsoids;
+  - an octant search whose `ndmax` cut binds;
+  - too few data (UNEST);
+  - ties at the cut (`ties_at_cut`: GSLIB chose other tied corners at all
+    60 nodes, each a valid choice under D-024).
+- **F-012 confirmed:** in `picksup_probe` (search radius 30, minor radius 3,
+  azimuth 20, 2 × 2 nodes per super-block), at 150 of 1 764 nodes GSLIB
+  skips data that lie inside its search ellipsoid. For example, node
+  (2.5, 2.5) is UNEST although datum 34 at (7.6311, 21.6522) lies at 0.875
+  of the radius: `picksup`'s 27 lattice points all lie outside the thin
+  ellipsoid. gslib-rs's exact bound (D-025) finds such data.
+- **OK with one datum is UNEST in GSLIB** (F-014, corrected). Seen at 274
+  nodes of `picksup_probe`.
+- **SK with one datum:** GSLIB's shortcut (`est = v`, `estv = 2(C(0) −
+  C(h))`) holds exactly at all 12 such nodes of `sk_single_datum`.
+- **Kriging:** gslib-rs, kriging GSLIB's own selection in GSLIB's order,
+  reproduces GSLIB's estimates, variances, weights and Lagrange multipliers.
+  The worst `|Δ| / (cond(A)·ε·scale)` is 10.4 (an SK estimate); every other
+  quantity in every case is at most 0.63. cond(A) ranges from 2.6 to 68,
+  and reaches 3.9e5 in `gaussian_ill_conditioned` (Gaussian model, no
+  nugget). GSLIB's covariance form with `unbias = C(0)` and gslib-rs's
+  variogram form agree throughout. The Lagrange multiplier printed by
+  GSLIB is −μ of the variogram form.
+- **Mutation checks**, against the fixtures: 6 of 7 planted bugs caught:
+  - `ndmax` off by one (245 mismatches);
+  - `ndmin` off by one (1 510);
+  - no cut after the octant rule (51);
+  - OK variance without μ (287);
+  - SK ignoring the mean (112);
+  - azimuth counter-clockwise (890).
+  
+  An octant boundary rule survives because no fixture datum sits exactly
+  on a boundary; the unit tests cover it.
+- **Fixture design lesson:** the `octants` case first used `max_data` 16,
+  then 10. In 2-D every datum falls in octants 1–4, so at most 8 pass, and
+  the cut never bound. A planted bug exposed this, and the case now uses 6.
+- **Size:** the nine fixtures take 0.94 MB, mostly the widened debug files.
+
+## D-035: k for kriging tolerances is 100
+- Status: decided (calibration called for by D-010)
+- Topic: harness.md
+- Question: What is `k` in the linear-solve bound `k · cond(A) · ε`?
+- Decision: **k = 100.** cond(A) is the larger of the two systems' (GSLIB's
+  covariance form bordered by `unbias = C(0)`, gslib-rs's form), computed
+  by SVD in the harness. The scale is the largest |value| among the
+  selected data for estimates, `C(0)` for variances and Lagrange
+  multipliers, and 1 for weights.
+- Rationale: the worst observed ratio over nine fixtures (F-015) is 10.4,
+  including cond(A) = 3.9e5. A factor of about 10 above the worst case
+  leaves room for other platforms' rounding without hiding real errors:
+  every planted kriging bug exceeded it by orders of magnitude.
+- Consequences: raising `k` needs a new decision entry with evidence, never
+  a quiet change (`AGENTS.md`, *Never weaken … to get green*).
+
+## Finding F-016: GSLIB 2.0's random numbers (survey, 2026-11-28)
+From `vendor/gslib-2.0/src/`:
+
+- **Generator:** ACORN (`GSLIB/ACORNI.FOR`), order `KORDEI = 12`, modulus
+  `MAXINT = 2³⁰`. Each draw updates
+  `ixv(i+1) = (ixv(i+1) + ixv(i)) mod 2³⁰` for i = 1..12 and returns
+  `ixv(13) / 2³⁰`, in [0, 1). The state is integer (32-bit, unaffected by
+  double promotion) and lives in a common block.
+- **Seeding rules** (the routine's own notes):
+  - `0 < seed < 2³⁰`;
+  - the other 12 state words start at 0;
+  - a seed is best odd and between about 0.001·2³⁰ and 0.999·2³⁰.
+  
+  `sgsim` sets only `ixv(1)` (`SGSIM.FOR` line 174) and relies on the
+  common block starting at zero; `nscore` zeroes it explicitly (line 140).
+- **Warm-up:** after seeding, 1 000 draws are discarded in `sgsim`,
+  `sisim`, `sisim_gs`, `sisim_lm`, `sasim`, `lusim`, `ellipsim`, `draw` and
+  `nscore`. `anneal` uses ACORN without that loop. `gtsim`, `pfsim`,
+  `bicalib` and `postsim` draw no random numbers.
+- **Example seeds:** 69069 in `SGSIM.PAR` and `SISIM.PAR`, and hard-coded
+  in `nscore`.
+- **`sgsim`'s use of the stream** (`SGSIM.FOR`):
+  - per realization, one draw per node builds the random path: the nodes
+    are sorted by those draws with `sortem`, after adding `imult` at the
+    multiple-grid nodes (lines 814–842);
+  - one draw per simulated node, `gauinv(p)`, gives the Gaussian deviate,
+    using GSLIB's approximate inverse (line 958, D-016).
+  
+  A single stream runs through all realizations, so realization *k*
+  depends on every earlier one.
+
+## D-036: The default generator is ChaCha8; ACORN is opt-in
+- Status: decided
+- Topic: rng.md
+- Question: Which generator do stochastic programs use by default
+  (statistical parity)?
+- Options: ChaCha8 by default with ACORN opt-in; ACORN by default; another
+  modern generator (PCG64, Xoshiro256++).
+- Decision: **ChaCha8 (`rand_chacha::ChaCha8Rng`) by default.** ACORN
+  (F-016) is a named `rand` generator (rand 0.10's `TryRng`/`Rng`; `RngCore` in earlier versions), used by the
+  opt-in exact-stream parity mode.
+- Rationale:
+  - ChaCha8 is a modern counter-based generator with independent streams
+    per key, which per-realization seeding needs (question 2).
+  - ACORN is an old lagged-sum design with 30-bit outputs whose quality
+    against modern test suites this repository has not checked. It is kept
+    for what it is needed for: reproducing GSLIB's streams.
+  - Random-number generation is not the bottleneck next to kriging solves,
+    so a faster generator would not repay a new dependency.
+- Consequences:
+  - The library keeps taking `&mut impl rand::Rng`, so callers can supply
+    either generator.
+  - A regression test pins the first outputs of the default generator for
+    a fixed seed. A dependency update that changed the stream would then be
+    caught, not silently change every realization.
+
+## D-037: Realization k uses ChaCha8 stream k of the master seed
+- Status: decided
+- Topic: rng.md (and parallelism.md, P5)
+- Question: How does each realization's stream derive from the one seed the
+  user gives?
+- Options: ChaCha stream k; hash-derived seeds (e.g. SplitMix64 of
+  (master, k)); keep one stream across realizations, like GSLIB.
+- Decision: **realization k (0-based) draws from
+  `ChaCha8Rng::seed_from_u64(master)` with `set_stream(k)`**, ChaCha's own
+  nonce: `rand_chacha` 0.10 documents 2⁶⁴ unique streams per key. Within a
+  realization, draws are taken from that one stream in the algorithm's
+  fixed order.
+- Rationale:
+  - Realization k depends only on (master seed, k). Realization 7 alone
+    equals realization 7 of a batch, and parallel equals sequential (P5;
+    `AGENTS.md`, *Explicit inputs and streams*).
+  - The generator separates the streams itself, so no seed arithmetic is
+    involved and no correlated seeds can arise from it.
+- Consequences:
+  - The CLI's output changes for every realization after the first (the
+    first uses stream 0, today's stream).
+  - A test checks that realization k run alone equals realization k of a
+    batch, for both `sgsim` and `sisim`.
+  - The exact-stream parity mode (question 3) keeps GSLIB's single ACORN
+    stream instead, so it runs realizations sequentially.
+  - The seed-to-stream rule lives in one place (a seed type, question 4),
+    not in each program.
+
+## D-038: Exact-stream parity: building blocks now, sgsim's mode later
+- Status: decided
+- Topic: rng.md
+- Question: What does the opt-in exact-stream parity cover, and when is it
+  built?
+- Options: building blocks now and an `sgsim` exact mode after statistical
+  parity; the full `sgsim` mode now; ACORN only, the rest deferred.
+- Decision:
+  - **Now, three building blocks, each checked bit for bit against
+    GSLIB:**
+    - `Acorn`, a `rand` generator (`TryRng`/`Rng` in rand 0.10) with GSLIB's seeding (order 12, modulus
+      2³⁰, zeroed state) and an explicit 1 000-draw warm-up (F-016);
+    - GSLIB's random path: one draw per node, nodes visited in increasing
+      order of their draws (plus the multiple-grid offsets when used);
+    - Gaussian deviates as `gauinv(p)`, GSLIB's approximation (D-016),
+      alongside gslib-rs's exact inverse.
+  - **Later, after statistical parity (harness step 8): an `sgsim` exact
+    mode.** It is defined as the same random path and the same draws, with
+    simulated values equal within a stated solver tolerance, not bit for
+    bit (the two codes solve kriging systems differently). It applies to
+    cases without `picksup` misses (D-025) or ties at a search cut (D-024).
+- Rationale: the building blocks are small and independently verifiable;
+  the full mode depends on search and kriging parity that harness step 8
+  establishes first. Exact parity stays an opt-in (`AGENTS.md`, *Parity
+  levels*).
+- Consequences:
+  - **The check for all three blocks at once:** an unconditional `sgsim`
+    fixture whose search radius is smaller than the node spacing, so no
+    data or nodes are ever found. Each node is then `gmean + 1·gauinv(p)`
+    (`SGSIM.FOR` lines 941–943), and the output in grid order exposes the
+    warm-up, the path order and every deviate. Several realizations check
+    the single stream.
+  - ACORN can also be checked through `nscore`'s despiking: each datum is
+    `v + acorni·10⁻⁶`, in data order after the warm-up (F-005).
+  - The exact mode keeps GSLIB's single stream across realizations, so it
+    runs sequentially (D-037 applies to the default mode).
+  - `gauinv` moves from the harness into the library as the documented
+    approximation that the exact mode uses.
+
+## D-039: A Seed type; ACORN's seed range enforced, even seeds allowed
+- Status: decided
+- Topic: rng.md
+- Question: How are seeds typed and validated?
+- Options: a seed type with ACORN's range enforced and even seeds allowed;
+  also reject even ACORN seeds; reduce out-of-range seeds into range.
+- Decision:
+  - **`Seed(u64)`** is the domain type for a master seed, and owns the
+    stream rule: `Seed::realization(k)` gives D-037's ChaCha8 stream.
+  - **ACORN requires `0 < seed < 2³⁰`** and fails otherwise
+    (`Error::InvalidInput`). GSLIB reads the seed into a 32-bit integer and
+    never checks it, so it would silently misbehave.
+  - **Even ACORN seeds are accepted.** GSLIB accepts them, and exact parity
+    must reproduce GSLIB parameter files.
+- Rationale: explicit failure over silent coercion (`AGENTS.md`, precedence
+  2), without refusing inputs GSLIB runs correctly.
+- Consequences: the CLI validates the ACORN range only in the exact mode;
+  the default mode accepts any `u64`.
+
+## Finding F-017: GSLIB's random streams reproduced bit for bit (2026-11-28)
+RNG spec steps 2–4, against GSLIB 2.0 runs:
+
+- **ACORN** (`random::Acorn`): the despiked values of all 7 `nscore`
+  tables, `ties` and trimmed `with_sentinels` included, are reproduced bit
+  for bit from `Acorn::gslib(69069)`, one draw per kept datum in data
+  order. This confirms the generator, its seeding and the 1 000-draw
+  warm-up.
+- **Random path and deviates** (`random::gslib_path`,
+  `transform::gslib_gauinv`): two unconditional `sgsim` fixtures with
+  nothing to search reproduce **1 320 of 1 320** values bit for bit:
+  - `unconditional`: 12 × 10, 3 realizations from one stream, seed 69069;
+  - `multiple_grid`: 24 × 20, 2 multiple-grid levels, the even seed 1234
+    (D-039).
+- **Unfused arithmetic matters:** `gslib_gauinv` with fused multiply-adds
+  matches only 716 of 1 320 values bit for bit. The reference build
+  (`-ffp-contract=off`) does not fuse.
+- **Mutation checks:**
+  - multiple-grid spacing off by one: 1 770 mismatches;
+  - path reversed: 2 640;
+  - fused `gauinv`: 604.
+
+  Adding 1 instead of `imult` at every level is caught by the unit tests
+  only. In these fixtures every level-2 node is also a level-1 node, so
+  their order is unchanged.
+- **Two `sgsim` limits found on the way:**
+  - when the data file is missing, `sgsim`'s message says it resets
+    `itrans` to 0, but the code resets only `ndmin`, `ndmax` and `sstrat`
+    (`SGSIM.FOR` lines 307–316), so the parameter file must set `itrans =
+    0` itself;
+  - the stock build is **2-D only**: `SGSIM.INC` sets `MAXX = MAXY = 150`
+    and `MAXZ = 1`, and a 3-D grid stops with "available grid size". 3-D
+    `sgsim` fixtures would need a recorded source patch in the recipe's
+    copy.
+
+## D-040: The statistics for sgsim parity
+- Status: decided during implementation (it follows from D-011, R8 and the
+  statistics; open to revision)
+- Topic: harness.md (step 8)
+- Question: Which per-realization statistics does R8 compare, and against
+  what?
+- Decision:
+  - **Statistics**, per realization:
+    - the experimental semivariogram along x and along y at lags 1–6 (all
+      pairs of nodes h apart in that direction);
+    - the proportion of nodes below each decile of N(0, 1).
+  - **Comparisons**, each within 5 standard errors:
+    - GSLIB's ensemble mean against gslib-rs's, with the combined error
+      `sqrt(s²_gslib/N + s²_ours/N)`;
+    - unconditional cases only: gslib-rs's ensemble mean against the model
+      (γ(h) and the decile), GSLIB's distance from the model reported;
+    - conditional cases: the data reproduced exactly at their nodes in
+      every realization of both.
+  - **Cases:** 2-D (stock `sgsim` is 2-D, F-017), no transform (data in
+    normal-score units), 16 × 16 nodes, N = 100.
+- Rationale: for a stationary Gaussian field, `E[γ̂(h)] = γ(h)` and `E[the
+  proportion below z] = Φ(z)`, so the model checks are unbiased. Sample
+  quantiles, by contrast, are biased by each realization's own mean, which
+  is why R8's "per quantile" is taken at the model's deciles. Keeping the
+  transform out separates simulation parity from transform parity, which
+  F-007 covers.
+- Consequences: transformed cases (`itrans = 1`) and other kriging types
+  are later cases with their own statistics, if needed.
+
+## Finding F-018: sgsim statistical parity (2026-11-28)
+Harness step 8, two fixtures of 100 realizations each (16 × 16 nodes,
+spherical model of sill 1 and range 8, search radius 12, 12 nodes, 8
+data), 21 statistics each (D-040):
+
+- **`stats_unconditional`:**
+  - GSLIB vs gslib-rs: worst difference 2.22 standard errors;
+  - against the model: gslib-rs 2.03 SE, GSLIB 1.93 SE.
+- **`stats_conditional`** (12 normal-score data on nodes): worst 1.08 SE;
+  every datum is exact at its node in all 100 realizations of both.
+- **Power, from planted bugs in gslib-rs's `sgsim`:**
+  - kriging variance used as the standard deviation: 46 mismatches (up to
+    121 SE);
+  - standard deviation 5% low: 11 mismatches (up to 9.4 SE);
+  - conditional mean shifted by 0.05 per node: 11 mismatches (proportions,
+    up to 6.4 SE).
+  
+  Removing the data-at-nodes rule changes nothing: a datum on a node is
+  found at distance 0 and simple kriging returns it with zero variance, so
+  that change is equivalent.
+- **Size:** about 0.67 MB per fixture, under D-011's 2 MB.

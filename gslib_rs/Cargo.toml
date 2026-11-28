@@ -18,17 +18,24 @@ nalgebra = "0.35"
 plotters = { version = "0.3.7", optional = true }
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_distr = { version = "0.6", default-features = false, features = ["std"] }
+# The default generator and its per-realization streams (docs/spec/rng.md,
+# D-036, D-037).
+rand_chacha = "0.10"
 libm = "0.2"
 statrs = "0.19"
 thiserror = "2"
+# Parallel maps (docs/spec/parallelism.md, D-029); only with `parallel`.
+rayon = { version = "1.12.0", optional = true }
 
 [features]
 default = ["plot"]
 ## PNG/SVG plotting via plotters (pulls in font rendering, incl. fontconfig).
 plot = ["dep:plotters"]
+## Parallel maps over the pure per-item functions (`gslib_rs::parallel`,
+## D-030). Results never depend on the thread count.
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
 approx = "0.5"
 proptest = "1.12"
-rand_chacha = "0.10"
 tempfile = "3.27"

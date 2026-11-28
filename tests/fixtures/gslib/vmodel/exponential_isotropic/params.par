@@ -1,0 +1,11 @@
+                  Parameters for VMODEL
+                  *********************
+
+START OF PARAMETERS:
+vmodel.var   \file for variogram output
+2 30   \number of directions and lags
+45 0 0.5   \azm, dip, lag distance
+0 30 1   \azm, dip, lag distance
+1 0   \nst, nugget effect
+2 1 0 0 0   \it,cc,ang1,ang2,ang3
+12 12 12   \a_hmax, a_hmin, a_vert

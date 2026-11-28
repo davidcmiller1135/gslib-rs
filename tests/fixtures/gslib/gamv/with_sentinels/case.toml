@@ -1,0 +1,13 @@
+schema = 1
+program = "gamv"
+description = "Omnidirectional semivariogram of 40 points, every fifth value -999, trimmed with tmin = -998: the sentinel records take no part in any pair."
+inputs = ["with_sentinels.dat"]
+
+[parameters]
+data = "with_sentinels.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+nlag = 8
+lag_spacing = 8.0
+lag_tolerance = 4.0
+trimming_limits = [-998.0, 1.0e21]

@@ -16,7 +16,7 @@ Library: variograms, kriging, and stochastic simulation. It is a library
   distance per lag.
 - **Kriging:** simple, ordinary (also with the power model) and simple
   cokriging, each returning the kriging variance.
-- **Search neighbourhood:** the k nearest samples within a radius.
+- **Search neighbourhood:** GSLIB's anisotropic search ellipsoid with `ndmin`/`ndmax` and octants (the CLI exposes the nearest `--max-samples` within `--radius`).
 - **Transforms:** normal scores (weighted, ties handled) and back-transform
   with GSLIB tail options.
 - **Simulation:** sequential Gaussian (SGS), sequential indicator (SIS) and
@@ -44,18 +44,47 @@ gslib-rs krige --data data.dat --targets grid.dat --out est.dat \
 
 # Sequential Gaussian simulation. Data are normal-scored and results
 # back-transformed, so give the model in normal-score units (sill 1).
-gslib-rs sgsim --data data.dat --sim grid.dat --nsim 10 --seed 69069 \
+gslib-rs sgsim --data data.dat --grid-x 50:0.5:1 --grid-y 50:0.5:1 \
+    --nsim 10 --seed 69069 --max-nodes 12 \
     --out-prefix sgs --structure exp:1:50
 
 # Sequential indicator simulation at one threshold.
-gslib-rs sisim --data data.dat --sim grid.dat --threshold 2.5 \
+gslib-rs sisim --data data.dat --grid-x 50:0.5:1 --grid-y 50:0.5:1 --threshold 2.5 \
     --out-prefix sis --structure sph:0.25:30
 ```
 
 `--structure` takes `TYPE:CC:A_HMAX[:A_HMIN:A_VERT[:AZIMUTH:DIP:PLUNGE]]`,
 where `TYPE` is `sph`, `exp`, `gau` or `hol`, or takes `pow:CC:OMEGA`. These
-are the same numbers as a GSLIB parameter file. Run `gslib-rs <command> --help`
-for every option.
+are the same numbers as a GSLIB parameter file. `--grid-x`, `--grid-y` and
+`--grid-z` take `N:MIN:SIZ`, GSLIB's `nx xmn xsiz` (y and z default to one
+node); simulation output lists X, Y, Z and one value column per node, x
+fastest. Run `gslib-rs <command> --help` for every option.
+
+**Missing values.** No trimming is applied unless you ask for it, but a
+command refuses data whose value column contains −999, −99 or a value of
+magnitude 10²¹ or more, since GSLIB files use these as missing-value codes.
+Give `--tmin`/`--tmax` to trim them (a value is kept if `tmin ≤ v < tmax`,
+so `--tmin -998` drops −999), or `--no-trimming` if they are real data. NaN
+and infinite values are errors unless `--nan missing` or
+`--inf missing|clamp` says otherwise. Coordinates are never trimmed.
+
+**Search.** `--min-samples`/`--max-samples` (GSLIB `ndmin`/`ndmax`),
+`--per-octant`, and an anisotropic ellipsoid from `--radius`,
+`--radius-minor`, `--radius-vertical` and `--search-angles AZ:DIP:PLUNGE`.
+`krige --on-too-few unestimated` writes `--unest` (default −999) where a
+target has too few data, as `kt3d` does. `sgsim`/`sisim` take
+`--max-nodes`, `--assign-data` (GSLIB's two-part search, with
+`--on-shared-node` and `--outside-grid`) and `--node-table gslib` for
+GSLIB's node-table limits.
+
+**Seeds.** `--seed` is a master seed: realization i draws from its own
+stream (ChaCha8, stream i), so it is the same whatever `--nsim` is and in
+whatever order realizations run.
+
+**Threads.** `krige`, `variogram`, `sgsim` and `sisim` use every core (the
+simulations run realizations in parallel); set `RAYON_NUM_THREADS` to limit
+them.
+Results are identical for any number of threads.
 
 ## Library
 

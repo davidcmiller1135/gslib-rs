@@ -20,6 +20,19 @@ pub struct Estimate {
     pub variance: f64,
 }
 
+/// A kriging solution: the estimate and the weights that produced it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Solution {
+    /// The estimate and its variance.
+    pub estimate: Estimate,
+    /// One weight per sample, in the order given.
+    pub weights: Vec<f64>,
+    /// Ordinary kriging's Lagrange multiplier μ (in variogram form; GSLIB's
+    /// covariance form reports −μ scaled by its `unbias` constant), or
+    /// `None` for simple kriging.
+    pub lagrange: Option<f64>,
+}
+
 fn dot(a: &DVector<f64>, b: impl IntoIterator<Item = f64>) -> f64 {
     a.iter().zip(b).map(|(w, v)| w * v).sum()
 }
@@ -38,6 +51,19 @@ pub fn simple_kriging(
     model: &CovarianceModel,
     mean: f64,
 ) -> Result<Estimate> {
+    simple_kriging_solution(samples, target, model, mean).map(|s| s.estimate)
+}
+
+/// [`simple_kriging`], also returning the weights.
+///
+/// # Errors
+/// As [`simple_kriging`].
+pub fn simple_kriging_solution(
+    samples: &[Sample],
+    target: Point3,
+    model: &CovarianceModel,
+    mean: f64,
+) -> Result<Solution> {
     let a = symmetric_matrix(samples, |p, q| model.covariance(p.location(), q.location()));
     let c = DVector::from_iterator(
         samples.len(),
@@ -46,9 +72,13 @@ pub fn simple_kriging(
             .map(|s| model.covariance(s.location(), target)),
     );
     let w = solve_spd(a, &c, "simple")?;
-    Ok(Estimate {
-        value: mean + dot(&w, samples.iter().map(|s| s.value() - mean)),
-        variance: (model.sill() - w.dot(&c)).max(0.0),
+    Ok(Solution {
+        estimate: Estimate {
+            value: mean + dot(&w, samples.iter().map(|s| s.value() - mean)),
+            variance: (model.sill() - w.dot(&c)).max(0.0),
+        },
+        weights: w.iter().copied().collect(),
+        lagrange: None,
     })
 }
 
@@ -66,6 +96,18 @@ pub fn ordinary_kriging(
     target: Point3,
     model: &VariogramModel,
 ) -> Result<Estimate> {
+    ordinary_kriging_solution(samples, target, model).map(|s| s.estimate)
+}
+
+/// [`ordinary_kriging`], also returning the weights and μ.
+///
+/// # Errors
+/// As [`ordinary_kriging`].
+pub fn ordinary_kriging_solution(
+    samples: &[Sample],
+    target: Point3,
+    model: &VariogramModel,
+) -> Result<Solution> {
     if samples.is_empty() {
         return Err(Error::invalid(
             "samples",
@@ -89,9 +131,13 @@ pub fn ordinary_kriging(
     let x = solve_general(a, &b, "ordinary")?;
     let weights = x.rows(0, n).into_owned();
     let mu: f64 = x.iter().skip(n).sum();
-    Ok(Estimate {
-        value: dot(&weights, samples.iter().map(Sample::value)),
-        variance: (dot(&weights, rhs_gamma) + mu).max(0.0),
+    Ok(Solution {
+        estimate: Estimate {
+            value: dot(&weights, samples.iter().map(Sample::value)),
+            variance: (dot(&weights, rhs_gamma) + mu).max(0.0),
+        },
+        weights: weights.iter().copied().collect(),
+        lagrange: Some(mu),
     })
 }
 
@@ -343,5 +389,23 @@ mod tests {
         // Secondary at the target with correlation 0.8 ⇒ estimate 0.8, variance 1 − 0.64.
         assert_abs_diff_eq!(e.value, 0.8, epsilon = EPS);
         assert_abs_diff_eq!(e.variance, 0.36, epsilon = EPS);
+    }
+
+    #[test]
+    fn solutions_report_their_weights() {
+        let samples = [s(0.0, 1.0), s(10.0, 3.0)];
+        let ok = ordinary_kriging_solution(&samples, at(5.0), &exp_model(1.0, 30.0)).unwrap();
+        assert_abs_diff_eq!(ok.weights.iter().sum::<f64>(), 1.0, epsilon = 1e-12);
+        assert_abs_diff_eq!(ok.weights[0], 0.5, epsilon = 1e-12);
+        assert!(ok.lagrange.is_some());
+        assert_eq!(
+            ok.estimate,
+            ordinary_kriging(&samples, at(5.0), &exp_model(1.0, 30.0)).unwrap()
+        );
+        let sk = simple_kriging_solution(&samples, at(5.0), &exp_cov(1.0, 30.0), 2.0).unwrap();
+        assert_eq!(sk.weights.len(), 2);
+        assert_eq!(sk.lagrange, None);
+        let value: f64 = sk.weights[1].mul_add(1.0, sk.weights[0].mul_add(-1.0, 2.0));
+        assert_abs_diff_eq!(sk.estimate.value, value, epsilon = 1e-12);
     }
 }

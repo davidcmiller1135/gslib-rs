@@ -20,6 +20,35 @@ fn normal_cdf(y: f64) -> f64 {
     0.5 * libm::erfc(-y / SQRT_2)
 }
 
+/// The standard normal quantile Φ⁻¹(p), to about 1e-16.
+///
+/// GSLIB's `gauinv` is a rational approximation accurate to about 1.5e-8
+/// (F-007 in `docs/spec/decisions.md`); this is the exact function it
+/// approximates.
+///
+/// # Errors
+/// [`Error::InvalidInput`] unless `0 < p < 1`.
+pub fn standard_normal_quantile(p: f64) -> Result<f64> {
+    if p > 0.0 && p < 1.0 {
+        Ok(normal_quantile(p))
+    } else {
+        Err(Error::invalid(
+            "probability",
+            format!("must be strictly between 0 and 1, got {p}"),
+        ))
+    }
+}
+
+/// The standard normal CDF Φ(y), to within an ulp or so.
+///
+/// GSLIB's `gcum` is a polynomial approximation accurate to about 7.5e-8
+/// absolute (F-007); this is the exact function it approximates. NaN maps to
+/// NaN.
+#[must_use]
+pub fn standard_normal_cdf(y: f64) -> f64 {
+    normal_cdf(y)
+}
+
 /// One row of a transformation table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Entry {
@@ -158,8 +187,9 @@ pub enum Tail {
     /// Return the nearest table value (no extrapolation).
     Clamp,
     /// Extrapolate linearly in probability to this bound, which is reached at
-    /// probability 0 (lower tail) or 1 (upper tail). Intended to match GSLIB
-    /// tail option 1; TODO(parity-verify) against `backtr.for`.
+    /// probability 0 (lower tail) or 1 (upper tail). GSLIB tail option 1
+    /// (verified against `BACKTR.FOR`; GSLIB computes the probabilities with
+    /// its `gcum` approximation, F-007).
     Linear(f64),
 }
 
@@ -228,8 +258,7 @@ impl BackTransform {
             };
         }
         // Interior: linear interpolation in score space between the
-        // bracketing table rows, as recalled from GSLIB `backtr`
-        // (TODO(parity-verify)).
+        // bracketing table rows, as GSLIB's `backtr` does (F-007).
         let entries = &self.table.entries;
         let above = entries.partition_point(|e| e.score <= score);
         match (
@@ -245,6 +274,64 @@ impl BackTransform {
     }
 }
 
+/// The measured bound on `|gslib_gauinv(p) − Φ⁻¹(p)|` for
+/// `1e-10 ≤ p ≤ 1 − 1e-10`: the worst error is 1.501e-8, near p = 0.033
+/// (F-007, D-016; pinned by a test).
+pub const GSLIB_GAUINV_MAX_ERROR: f64 = 2e-8;
+
+/// GSLIB's `gauinv`, reproduced exactly (`vendor/gslib-2.0/src/GSLIB/GAUINV.FOR`;
+/// `docs/spec/rng.md` RN6).
+///
+/// A rational approximation to Φ⁻¹ (Kennedy & Gentle 1980, as its comment
+/// cites), within [`GSLIB_GAUINV_MAX_ERROR`] of
+/// [`standard_normal_quantile`]. It exists for exact-stream parity, where
+/// GSLIB's deviates must be reproduced bit for bit; use
+/// [`standard_normal_quantile`] otherwise.
+///
+/// **GSLIB's contract, kept as is:** below `1e-10` it returns `−1e10`, above
+/// `1 − 1e-10` it returns `1e10`, and exactly at 0.5 it returns 0. The
+/// arithmetic follows the Fortran's evaluation order without fused
+/// multiply-adds, as the reference build is compiled
+/// (`-ffp-contract=off`).
+#[must_use]
+#[expect(
+    clippy::suboptimal_flops,
+    reason = "reproduce GSLIB's unfused arithmetic bit for bit"
+)]
+pub fn gslib_gauinv(p: f64) -> f64 {
+    const LIM: f64 = 1.0e-10;
+    let (p0, p1, p2, p3, p4) = (
+        -0.322_232_431_088,
+        -1.0,
+        -0.342_242_088_547,
+        -0.020_423_121_024_5,
+        -0.000_045_364_221_014_8,
+    );
+    let (q0, q1, q2, q3, q4) = (
+        0.099_348_462_606_0,
+        0.588_581_570_495,
+        0.531_103_462_366,
+        0.103_537_752_850,
+        0.003_856_070_063_4,
+    );
+    if p < LIM {
+        return -1.0e10;
+    }
+    if p > 1.0 - LIM {
+        return 1.0e10;
+    }
+    let pp = if p > 0.5 { 1.0 - p } else { p };
+    if p.to_bits() == 0.5_f64.to_bits() {
+        return 0.0;
+    }
+    let y = (1.0 / (pp * pp)).ln().sqrt();
+    let xp = y
+        + ((((y * p4 + p3) * y + p2) * y + p1) * y + p0)
+            / ((((y * q4 + q3) * y + q2) * y + q1) * y + q0);
+    // GSLIB: `if(real(p).eq.real(pp)) xp = -xp`.
+    if p.to_bits() == pp.to_bits() { -xp } else { xp }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,9 +343,9 @@ mod tests {
     #[test]
     fn quantile_and_cdf_are_inverse() {
         assert_abs_diff_eq!(normal_quantile(0.5), 0.0, epsilon = EPS);
-        // Standard values to 16 digits, written from memory. So far they are
-        // only cross-checked between statrs and libm, not against an
-        // independent high-precision source. TODO(parity-verify)
+        // Standard values to 16 digits; they agree within 4.4e-16 with
+        // Python's statistics.NormalDist (CPython 3.13), an independent
+        // implementation (F-007).
         assert_abs_diff_eq!(
             normal_quantile(0.975),
             1.959_963_984_540_054,
@@ -276,6 +363,15 @@ mod tests {
         );
         assert_abs_diff_eq!(normal_cdf(-1.281_551_565_544_600_4), 0.1, epsilon = 1e-16);
         assert_abs_diff_eq!(normal_cdf(normal_quantile(0.1)), 0.1, epsilon = 1e-16);
+    }
+
+    #[test]
+    fn public_quantile_rejects_out_of_range() {
+        assert!(standard_normal_quantile(0.0).is_err(), "p = 0");
+        assert!(standard_normal_quantile(1.0).is_err(), "p = 1");
+        assert!(standard_normal_quantile(f64::NAN).is_err(), "NaN");
+        assert_abs_diff_eq!(standard_normal_quantile(0.5).unwrap(), 0.0, epsilon = EPS);
+        assert_abs_diff_eq!(standard_normal_cdf(0.0), 0.5, epsilon = EPS);
     }
 
     #[test]
@@ -379,5 +475,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Probabilities on a log grid from 1e-10 to 0.5 plus a linear grid,
+    /// mirrored above 0.5.
+    fn probabilities() -> Vec<f64> {
+        let log = (0..=20_000).map(|k| 10_f64.powf(-10.0 + 10.0 * f64::from(k) / 20_000.0));
+        let lin = (1..100_000).map(|k| f64::from(k) / 200_000.0);
+        let lower: Vec<f64> = log
+            .chain(lin)
+            .filter(|&p| (1e-10..=0.5).contains(&p))
+            .collect();
+        let upper: Vec<f64> = lower.iter().map(|p| 1.0 - p).collect();
+        lower.into_iter().chain(upper).collect()
+    }
+
+    #[test]
+    fn gslib_gauinv_error_bound() {
+        // RN6: the bound D-016 measured, pinned in both directions.
+        let worst = probabilities()
+            .into_iter()
+            .map(|p| (gslib_gauinv(p) - standard_normal_quantile(p).unwrap()).abs())
+            .fold(0.0, f64::max);
+        assert!(
+            worst <= GSLIB_GAUINV_MAX_ERROR,
+            "error {worst:e} exceeds the bound"
+        );
+        assert!(
+            worst > GSLIB_GAUINV_MAX_ERROR / 2.0,
+            "bound is loose: {worst:e}"
+        );
+    }
+
+    #[test]
+    fn gslib_gauinv_keeps_gslibs_contract() {
+        assert_eq!(gslib_gauinv(0.5).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(gslib_gauinv(0.0).to_bits(), (-1.0e10_f64).to_bits());
+        assert_eq!(gslib_gauinv(1.0 - 1e-11).to_bits(), 1.0e10_f64.to_bits());
+        assert!((gslib_gauinv(0.3) + gslib_gauinv(0.7)).abs() < 1e-15, "odd");
+        assert!(gslib_gauinv(0.25) < 0.0 && gslib_gauinv(0.75) > 0.0);
     }
 }

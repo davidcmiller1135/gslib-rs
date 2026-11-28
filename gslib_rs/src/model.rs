@@ -24,6 +24,10 @@ pub enum Kind {
     ///
     /// GSLIB stores ω in the range slot; here the range `a` is a unit
     /// distance (use 1 to match GSLIB) and its ratios still give anisotropy.
+    ///
+    /// Unlike GSLIB 2.0, a nugget still applies at h > 0: GSLIB's `cova3`
+    /// cancels it out of γ for power models (a defect; F-006 in
+    /// `docs/spec/decisions.md`).
     Power {
         /// The exponent ω, strictly between 0 and 2.
         exponent: f64,

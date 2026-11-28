@@ -1,0 +1,12 @@
+schema = 1
+program = "vmodel"
+description = "Exponential structure, isotropic, no nugget: practical range 12 (95% of sill), along a diagonal azimuth."
+
+[parameters]
+nlag = 30
+nugget = 0.0
+directions = [
+    { azimuth = 45.0, dip = 0.0, lag = 0.5 },
+    { azimuth = 0.0, dip = 30.0, lag = 1.0 },
+]
+structures = [{ kind = 2, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [12.0, 12.0, 12.0] }]

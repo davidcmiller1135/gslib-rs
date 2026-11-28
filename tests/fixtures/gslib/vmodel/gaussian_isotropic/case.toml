@@ -1,0 +1,9 @@
+schema = 1
+program = "vmodel"
+description = "Gaussian structure with a small nugget. Regression for the formula fixed in F-004: GSLIB uses exp(-(3h/a)^2)."
+
+[parameters]
+nlag = 20
+nugget = 0.05
+directions = [{ azimuth = 0.0, dip = 0.0, lag = 0.5 }]
+structures = [{ kind = 3, cc = 0.95, angles = [0.0, 0.0, 0.0], ranges = [8.0, 8.0, 8.0] }]

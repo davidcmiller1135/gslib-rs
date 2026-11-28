@@ -1,0 +1,8 @@
+schema = 1
+program = "nscore"
+description = "Two data, nscore's minimum (it stops with 'too few data' at one)."
+inputs = ["tiny.dat"]
+
+[parameters]
+data = "tiny.dat"
+variable_column = 4

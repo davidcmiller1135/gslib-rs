@@ -1,0 +1,12 @@
+schema = 1
+program = "gamv"
+description = "The 3-D grid with xlag = 2 and xltol = 1, so separations of exactly 1 and 3 (vertical neighbours) fall on the bounds between classes: GAMV.FOR's bounds are inclusive, so those pairs count in both."
+inputs = ["grid_3d.dat"]
+
+[parameters]
+data = "grid_3d.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+nlag = 4
+lag_spacing = 2.0
+lag_tolerance = 1.0

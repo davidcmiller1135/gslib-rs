@@ -39,8 +39,11 @@ pub mod kriging;
 mod linalg;
 pub mod model;
 mod num;
+#[cfg(feature = "parallel")]
+pub mod parallel;
 #[cfg(feature = "plot")]
 pub mod plot;
+pub mod random;
 pub mod sample;
 pub mod search;
 pub mod simulation;

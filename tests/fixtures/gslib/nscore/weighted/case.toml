@@ -1,0 +1,9 @@
+schema = 1
+program = "nscore"
+description = "50 values with declustering weights (column 5): each score is the quantile of the midpoint of its cumulative-weight interval."
+inputs = ["weighted.dat"]
+
+[parameters]
+data = "weighted.dat"
+variable_column = 4
+weight_column = 5

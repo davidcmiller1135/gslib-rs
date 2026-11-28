@@ -25,6 +25,9 @@ cargo clippy -p gslib_rs --all-targets --no-default-features -- -D warnings
 cargo test --workspace
 cargo doc --workspace --no-deps
 cargo deny check
+cargo xtask oracle verify-source   # vendored GSLIB 2.0 is untouched
+cargo xtask gen-data --check       # synthetic data suites match their generator
+cargo xtask oracle build           # optional: builds the Fortran reference (needs gfortran)
 ```
 
 The toolchain is pinned in `rust-toolchain.toml`. To upgrade it, bump the

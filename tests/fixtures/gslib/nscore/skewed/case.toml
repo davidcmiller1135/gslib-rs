@@ -1,0 +1,8 @@
+schema = 1
+program = "nscore"
+description = "80 lognormal values (strong positive skew): the transform is rank-based, so skew must not matter."
+inputs = ["skewed.dat"]
+
+[parameters]
+data = "skewed.dat"
+variable_column = 4

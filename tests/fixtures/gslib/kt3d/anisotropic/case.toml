@@ -1,0 +1,19 @@
+schema = 1
+program = "kt3d"
+description = "Ordinary kriging with a rotated anisotropic search ellipsoid (radii 50/20, azimuth 30) and a rotated anisotropic spherical model (60/25, azimuth 30): S1 membership and the angle conventions."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+grid_counts = [8, 8, 1]
+grid_origin = [5.0, 5.0, 0.0]
+grid_spacing = [12.0, 12.0, 1.0]
+min_data = 3
+max_data = 10
+search_radii = [50.0, 20.0, 20.0]
+search_angles = [30.0, 0.0, 0.0]
+kriging = "ordinary"
+nugget = 0.1
+structures = [{ kind = 1, cc = 0.9, angles = [30.0, 0.0, 0.0], ranges = [60.0, 25.0, 25.0] }]

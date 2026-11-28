@@ -138,11 +138,16 @@ Further rules:
 ## Repo Specifics
 
 - **Core (pure):** `gslib_rs/src/{geometry, model, variogram, kriging, search,
-  transform, simulation, linalg, num, sample}.rs`.
+  transform, simulation, linalg, num, random, sample}.rs`.
 - **Boundaries:**
   - `gslib_rs/src/io.rs`: pure `parse_gslib`/`format_gslib`, plus file wrappers;
   - `gslib_rs/src/plot.rs`: behind the `plot` feature;
   - `cli/`: arguments, seeding, files.
+- **Harness (not part of the library):**
+  - `oracle-case/`: fixture schema (`case.toml`, `provenance.toml`),
+    validation, discovery;
+  - `harness/`: tests-only crate checking gslib-rs against the fixtures;
+  - `xtask/`: the reference recipe, e.g. `cargo xtask oracle verify-source`.
 - **Checks** (all run in CI; the toolchain is pinned in `rust-toolchain.toml`):
   ```sh
   cargo fmt --all --check
@@ -151,14 +156,21 @@ Further rules:
   cargo test --workspace
   cargo doc --workspace --no-deps
   cargo deny check
+  cargo xtask oracle verify-source
+  cargo xtask gen-data --check
   ```
 - **GSLIB 2.0 source (the oracle):** `vendor/gslib-2.0/src/`, vendored
   byte-for-byte. **Never modify it**: `MANIFEST.sha256` verifies it, and
   build-time changes are applied to a copy. Answer questions about GSLIB's
   behaviour from this source, citing file and routine. Its licence notice is
   in `NOTICE`.
-- **Reference fixtures:** not yet built. Planned location is
-  `tests/fixtures/gslib/`, each fixture with a provenance note: compiler and
-  flags, source patches, input data, and parameter file
+- **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel`,
+  `nscore`, `backtr`, `gamv`, `kt3d`, `sgsim` so far). To add one, write its `case.toml`, commit any recipe changes, then run
+  `cargo xtask oracle generate --program <name>` (needs gfortran); never edit
+  generated files by hand; `cargo xtask oracle status` lists fixtures made by
+  an older recipe. Synthetic inputs come from
+  `tests/fixtures/data/` (`cargo xtask gen-data`, defined in
+  `xtask/src/data.rs`). `harness/` compares gslib-rs against them
   (`docs/spec/harness.md`).
 - **Roadmap, divergences, provenance ledger:** `docs/ROADMAP.md`.
+- **Plan and handoff (start here in a new session):** `docs/PLAN.md`.

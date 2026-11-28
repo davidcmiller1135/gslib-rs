@@ -14,4 +14,4 @@ pub use sasim::{
     Conditioning, CorrelationObjective, HistogramObjective, IndicatorVariogramObjective,
     Objectives, Schedule, VariogramObjective, sasim,
 };
-pub use sequential::{sgsim, sisim};
+pub use sequential::{DataConditioning, Searches, sgsim, sisim};

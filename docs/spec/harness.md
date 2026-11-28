@@ -62,6 +62,9 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
 - **R3 Reproducible fixtures.** Re-running the recipe with the same pinned
   inputs reproduces the committed fixtures byte-for-byte, or the difference is
   explained in the provenance record.
+  *Evidence:* after the step 3 recipe change, regenerating all 8 vmodel
+  fixtures reproduced every `vmodel.var` and `params.par` byte-for-byte;
+  only `provenance.toml` changed (recipe hash, commit, time).
 - **R4 Synthetic suites.** A committed generator script, seeded, produces each
   synthetic input and a note saying what behaviour it targets.
 - **R5 Case files.** Each reference case is one versioned TOML file. The
@@ -69,8 +72,13 @@ items in the provenance ledger (`docs/ROADMAP.md` §6) can be ticked off.
   the fixture.
 - **R6 Fixture layout.** `tests/fixtures/gslib/<program>/<case>/` contains
   `case.toml`, the inputs, `params.par`, GSLIB's outputs byte-for-byte, and
-  `provenance.toml` with every field listed in D-009. The harness fails if any
-  field is missing.
+  `provenance.toml` with every field listed in D-009. With vendoring (D-013),
+  the archive hash is replaced by `source_manifest_sha256`, the SHA-256 of
+  `vendor/gslib-2.0/MANIFEST.sha256`. The harness fails if any field is
+  missing, if `case.toml` no longer matches its recorded hash, or if the
+  compiler flags lack `-fdefault-real-8`/`-fdefault-double-8`. Provenance also
+  records `recipe_sha256`, a content hash of the recipe that survives squash
+  merges (D-014). Implemented in `oracle-case`.
 - **R7 Deterministic comparison.** Structure (shape, names, missing positions)
   must match exactly. Values: by default, relative 1e-12 for direct formulas
   and k·cond(A)·ε for kriging results (k to be calibrated, D-010). Overrides
@@ -108,8 +116,8 @@ loosening tolerances:
 Each step is one reviewable PR. The checks in `AGENTS.md` must pass, and no
 step weakens a lint or tolerance.
 
-1. **Harness scaffolding.** Add the `oracle-case`, `harness` and `xtask` crates
-   (`publish = false`) and the `cargo xtask` alias.
+1. **Harness scaffolding** (done). Add the `oracle-case`, `harness` and `xtask`
+   crates (`publish = false`) and the `cargo xtask` alias.
    - Schema v1 types and TOML parsing in `oracle-case`.
    - Fixture discovery and provenance validation (R6) in `harness`.
    - Vendored-source verification against `MANIFEST.sha256` in
@@ -118,17 +126,20 @@ step weakens a lint or tolerance.
      `cargo deny`.
    - Tests: schema round trip; rejection of a missing provenance field;
      checksum mismatch fails; `cargo test` passes with no fixtures present.
-2. **Build stage.** The xtask locates gfortran (setup runs `apt-get update`
-   first, D-006), applies the generic format-widening rules, builds with
-   double promotion, and records the full compiler version and flags.
+2. **Build stage** (done: `cargo xtask oracle build`, F-005). The xtask
+   locates gfortran (setup runs `apt-get update` first, D-006), applies the
+   generic format-widening rules, builds with double promotion, and records
+   the full compiler version and flags.
    - Tests: rewrite rules on Fortran snippets written for the test (no GSLIB
      source lines).
    - The patterns the rules must match are taken from the vendored source.
-3. **Synthetic data generator** (`cargo xtask gen-data`): seeded and
-   deterministic, writing a note per suite (R4).
+3. **Synthetic data generator** (done: `cargo xtask gen-data [--check]`, 10
+   suites in `tests/fixtures/data/`). Seeded and deterministic, writing a
+   note per suite (R4). A case lists a suite file in `inputs`, and `generate`
+   copies it into the case.
    - Tests: the same seed gives byte-identical output; each suite contains
      the edge cases it claims.
-4. **vmodel.**
+4. **vmodel** (done: 8 fixtures, F-006; tolerance default confirmed, D-015).
    - Work: `.par` generator (layout read from the source); reader for its
      output; comparison through `VariogramModel::gamma` along GSLIB's
      directions.
@@ -136,23 +147,30 @@ step weakens a lint or tolerance.
      dip (including its sign), plunge, and anisotropy ratios.
    - Outcome: tick off the `setrot`/`cova3` items in ROADMAP §6, or fix the
      code.
-5. **nscore / backtr.**
+5. **nscore / backtr** (done: 6 fixtures, F-007, D-016).
    - Work: `.par` generators and a transformation-table reader.
    - Cases: tie-free (exact), weighted, ties (expected deviation), and tails
      (option 1).
    - Outcome: tick off the nscore, backtr and gauinv ledger items.
    - Then a decision entry calibrating the 1e-12 default from the evidence
      (D-010).
-6. **gamv.**
+6. **gamv** (done for the omnidirectional semivariogram: 7 fixtures, F-008,
+   D-017).
    - Work: first implement GSLIB-style lag classes (`xlag`/`xltol`) in
      `variogram`, with their own unit tests; then the `.par` generator and an
      output reader.
    - Cases: omnidirectional only at this stage.
-7. **kt3d.**
+7. **kt3d** (done for simple and ordinary point kriging: nine fixtures,
+   F-015; k calibrated to 100, D-035).
    - Cases: simple and ordinary kriging at points, with a search covering
      every datum; well- and ill-conditioned configurations.
    - Then a decision entry calibrating k in k·cond(A)·ε (D-010).
-8. **sgsim.**
+8. **sgsim** (done: statistical parity, two fixtures of 100 realizations,
+   F-018, statistics D-040). Groundwork: an `sgsim` case generator (so far only
+   unconditional runs with nothing to search, RNG spec RN7) and two
+   fixtures reproduced bit for bit (F-017). The stock build is 2-D only
+   (`MAXZ = 1`), so statistical-parity cases stay 2-D or the recipe patches
+   `SGSIM.INC` in its copy, recorded in provenance.
    - Cases: N = 100 realizations per implementation on a small grid; R8
      statistics plus the independent model-reproduction checks.
    - Fixture under 2 MB (D-011).

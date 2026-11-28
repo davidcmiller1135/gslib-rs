@@ -1,0 +1,13 @@
+schema = 1
+program = "sgsim"
+description = "Statistical parity (R8, D-011): 100 unconditional realizations on a 16 x 16 grid, spherical model (sill 1, range 8), search radius 12, up to 12 previously simulated nodes. Ensemble means of per-realization variograms along x and y (lags 1-6) and of proportions below the N(0,1) deciles are compared with gslib-rs's ensemble within 5 standard errors, and both with the model."
+
+[parameters]
+grid_counts = [16, 16, 1]
+grid_origin = [0.5, 0.5, 0.5]
+grid_spacing = [1.0, 1.0, 1.0]
+realizations = 100
+seed = 69069
+search_radius = 12.0
+max_nodes = 12
+structures = [{ kind = 1, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [8.0, 8.0, 8.0] }]

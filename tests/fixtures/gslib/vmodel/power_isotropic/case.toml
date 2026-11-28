@@ -1,0 +1,22 @@
+schema = 1
+program = "vmodel"
+description = "Power structure (omega = 1.5, stored in a_hmax as GSLIB does), no nugget: verifies gamma = cc * h^omega exactly. With a nugget GSLIB diverges; see power_with_nugget."
+
+[parameters]
+nlag = 20
+nugget = 0.0
+directions = [
+    { azimuth = 0.0, dip = 0.0, lag = 1.0 },
+    { azimuth = 90.0, dip = 0.0, lag = 2.0 },
+]
+structures = [{ kind = 4, cc = 0.5, angles = [0.0, 0.0, 0.0], ranges = [1.5, 1.5, 1.5] }]
+
+[[expected_deviations]]
+quantity = "cov"
+divergence = "Power model covariance (ROADMAP §2)"
+reason = "GSLIB reports PMX - gamma with PMX = 999 (COVA3.FOR); gslib-rs has no covariance for the power model."
+
+[[expected_deviations]]
+quantity = "ro"
+divergence = "Power model covariance (ROADMAP §2)"
+reason = "ro is cov / maxcov, so it inherits the PMX convention."

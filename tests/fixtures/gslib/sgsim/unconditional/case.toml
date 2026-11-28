@@ -1,0 +1,11 @@
+schema = 1
+program = "sgsim"
+description = "Unconditional sgsim with nothing to search (no data, search radius below the node spacing): each node is gauinv of its ACORN draw, so the output exposes the warm-up, the random path and the deviates of 3 realizations from one stream (RNG spec RN7)."
+
+[parameters]
+grid_counts = [12, 10, 1]
+grid_origin = [0.5, 0.5, 0.5]
+grid_spacing = [1.0, 1.0, 1.0]
+realizations = 3
+seed = 69069
+search_radius = 0.5

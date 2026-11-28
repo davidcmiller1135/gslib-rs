@@ -46,6 +46,10 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+      - name: Vendored GSLIB 2.0 matches its manifest
+        run: cargo xtask oracle verify-source
+      - name: Synthetic data suites match their generator
+        run: cargo xtask gen-data --check
       - name: Test without the plot feature
         run: cargo test -p gslib_rs --no-default-features
 
@@ -57,6 +61,15 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps
+
+  oracle:
+    # Builds the Fortran GSLIB 2.0 reference (docs/spec/harness.md, R1).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gfortran
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask oracle build
 
   msrv:
     runs-on: ubuntu-latest

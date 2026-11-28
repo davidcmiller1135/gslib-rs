@@ -1,0 +1,19 @@
+schema = 1
+program = "kt3d"
+description = "Ordinary kriging with an octant search (at most 2 per octant, then the nearest 6, radius 60): S3 and S4. In 2-D every datum falls in octants 1-4 (dz = 0), so at most 8 pass the octant rule and the cut at 6 binds."
+inputs = ["smooth.dat"]
+
+[parameters]
+data = "smooth.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+grid_counts = [8, 8, 1]
+grid_origin = [5.0, 5.0, 0.0]
+grid_spacing = [12.0, 12.0, 1.0]
+min_data = 2
+max_data = 6
+per_octant = 2
+search_radii = [60.0, 60.0, 60.0]
+kriging = "ordinary"
+nugget = 0.1
+structures = [{ kind = 1, cc = 0.9, angles = [0.0, 0.0, 0.0], ranges = [50.0, 50.0, 50.0] }]

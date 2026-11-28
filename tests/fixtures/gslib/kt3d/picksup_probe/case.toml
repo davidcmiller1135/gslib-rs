@@ -1,0 +1,29 @@
+schema = 1
+program = "kt3d"
+description = "A thin rotated search ellipsoid (radius 30, minor radius 3, azimuth 20) on a 42 x 42 grid, so each super-block holds 2 x 2 nodes: probes F-012's hypothesis that picksup's 27-point test skips blocks holding data inside the ellipsoid. Data from docs/spec/probes/picksup_data.py."
+inputs = ["probe.dat"]
+
+[parameters]
+data = "probe.dat"
+coordinate_columns = [1, 2, 0]
+variable_column = 4
+grid_counts = [42, 42, 1]
+grid_origin = [2.5, 2.5, 0.0]
+grid_spacing = [5.0, 5.0, 1.0]
+min_data = 1
+max_data = 8
+search_radii = [30.0, 3.0, 30.0]
+search_angles = [20.0, 0.0, 0.0]
+kriging = "ordinary"
+nugget = 0.1
+structures = [{ kind = 1, cc = 0.9, angles = [20.0, 0.0, 0.0], ranges = [60.0, 6.0, 60.0] }]
+
+[[expected_deviations]]
+quantity = "ok_single_datum"
+divergence = "Ordinary kriging with one datum (kt3d) (ROADMAP §2)"
+reason = "kt3d counts OK's unbiasedness as a drift term and writes UNEST where 1 <= na <= mdt = 1 (KT3D.FOR lines 707-716), whatever ndmin says; gslib-rs estimates with weight 1. The harness checks that GSLIB wrote UNEST there."
+
+[[expected_deviations]]
+quantity = "picksup"
+divergence = "Super-block selection misses data (kt3d) (ROADMAP §2)"
+reason = "picksup tests only 27 lattice points between two super-blocks, so a thin rotated ellipsoid can reach into a block it skips (F-012, confirmed here: e.g. node (2.5, 2.5) is UNEST although a datum lies at 0.875 of the radius). gslib-rs's super-block bound is exact (D-025). The harness checks that GSLIB's selection equals a port of picksup at every node."

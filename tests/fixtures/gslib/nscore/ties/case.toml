@@ -1,0 +1,18 @@
+schema = 1
+program = "nscore"
+description = "40 values on 4 levels, mostly tied. GSLIB breaks ties randomly (ACORN x 1e-6 despiking, F-005); gslib-rs gives tied values one shared score. Order between distinct values and the table's despiked values are still checked."
+inputs = ["ties.dat"]
+
+[parameters]
+data = "ties.dat"
+variable_column = 4
+
+[[expected_deviations]]
+quantity = "score"
+divergence = "Ties in nscore (ROADMAP §2)"
+reason = "GSLIB perturbs every datum by acorni * 1e-6 (NSCORE.FOR line 179), so tied values get distinct, randomly ordered scores; gslib-rs assigns each tie group the score of its combined interval's midpoint."
+
+[[expected_deviations]]
+quantity = "table_score"
+divergence = "Ties in nscore (ROADMAP §2)"
+reason = "Same as score: the table lists one row per datum with GSLIB's tie-broken scores."

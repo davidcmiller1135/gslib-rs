@@ -1,0 +1,24 @@
+schema = 1
+program = "vmodel"
+description = "Hole-effect structure: the periodic cos(pi h / a) shape, past one full period."
+
+[parameters]
+nlag = 25
+nugget = 0.0
+directions = [{ azimuth = 90.0, dip = 0.0, lag = 0.5 }]
+structures = [{ kind = 5, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [5.0, 5.0, 5.0] }]
+
+[[tolerances]]
+quantity = "gamma"
+relative = 1e-8
+justification = "COVA3.FOR evaluates cos(h/a*PI) with PI = 3.14159265, short of pi by 3.59e-9, so |dgamma| <= cc * (h/a) * 3.59e-9. Here h/a <= 2.5, giving <= 8.97e-9 * sill (measured worst: 8.974e-9 at h/a = 2.5)."
+
+[[tolerances]]
+quantity = "cov"
+relative = 1e-8
+justification = "Same as gamma: cov = sill - gamma."
+
+[[tolerances]]
+quantity = "ro"
+relative = 1e-8
+justification = "Same as gamma: ro = cov / sill."

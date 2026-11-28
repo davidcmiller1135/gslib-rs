@@ -36,6 +36,30 @@ pub enum Error {
         reason: String,
     },
 
+    /// A value is NaN or infinite where a finite one is required: in data
+    /// whose extraction policy does not make it missing, or in a result
+    /// being written.
+    #[error("row {row}, column {column}: {value} is not finite")]
+    NonFinite {
+        /// 1-based data row (not counting the header).
+        row: usize,
+        /// 1-based column.
+        column: usize,
+        /// The offending value.
+        value: f64,
+    },
+
+    /// A search found fewer data than it requires (GSLIB's `ndmin`).
+    #[error("only {found} data within the search at {target:?}, {required} required")]
+    TooFewData {
+        /// The location searched from.
+        target: crate::geometry::Point3,
+        /// How many data the search kept.
+        found: usize,
+        /// The minimum it requires.
+        required: usize,
+    },
+
     /// Two inputs that must correspond element-by-element do not.
     #[error("{what}: lengths differ ({left} vs {right})")]
     LengthMismatch {

@@ -1,30 +1,68 @@
-//! Sequential Gaussian and sequential indicator simulation.
+//! Sequential Gaussian and sequential indicator simulation on a [`Grid`].
 //!
-//! Each node is kriged from the data and previously simulated nodes chosen by
-//! a [`Search`] neighbourhood. With [`Search::unlimited`], cost grows as
-//! O(N⁴) in the number of nodes; a bounded search keeps it near O(N²).
+//! Each node, visited in random order, is kriged from two searches, as in
+//! GSLIB `sgsim` (`docs/spec/search.md`, D-026): the conditioning data, found
+//! by a [`DataSearch`] over a [`SuperBlock`] of the data, then the previously
+//! simulated nodes, found by a [`NodeSearch`]. Data come first in the kriging
+//! system, nearest first; nodes follow in the node search's order.
+//!
+//! A node within [`COINCIDENT`] of a datum takes the datum's value and is not
+//! simulated. As in GSLIB, such a node is not an informed node for later
+//! node searches, since the datum itself is found by the data search: one
+//! location never enters a kriging system twice.
+//!
+//! **Two-part search** (GSLIB `sstrat = 1`, [`DataConditioning::AssignToNodes`]):
+//! each datum is first moved to its nearest node ([`assign_to_nodes`]); those
+//! nodes hold the data's values, count as informed, and are never
+//! simulated; and only the node search is used.
 
 use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution, StandardNormal};
 
+use super::Grid;
 use crate::error::{Error, Result};
 use crate::geometry::{COINCIDENT, Point3};
 use crate::kriging::simple_kriging;
 use crate::model::CovarianceModel;
 use crate::num::mean;
 use crate::sample::Sample;
-use crate::search::Search;
+use crate::search::{
+    DataSearch, NodeSearch, OnSharedNode, OutsideGrid, SuperBlock, assign_to_nodes,
+};
 
-/// Visit `nodes` in random order, computing each value from the conditioning
-/// set so far (data plus earlier nodes), and return values in node order.
-///
-/// A node that coincides with a conditioning location takes that location's
-/// value directly: re-kriging there would only duplicate a row of the system.
+/// How sequential simulation uses the conditioning data.
+#[derive(Debug, Clone, Copy)]
+pub enum DataConditioning<'a> {
+    /// Search the data at every node (GSLIB `sstrat = 0`).
+    Search(&'a DataSearch),
+    /// Move each datum to its nearest node, then search only nodes (GSLIB
+    /// `sstrat = 1`), with the policies for shared nodes and data outside
+    /// the grid (D-028, F-013).
+    AssignToNodes {
+        /// Two data on one node.
+        shared: OnSharedNode,
+        /// A datum outside the grid.
+        outside: OutsideGrid,
+    },
+}
+
+/// The searches of sequential simulation.
+#[derive(Debug, Clone, Copy)]
+pub struct Searches<'a> {
+    /// How the conditioning data enter each kriging system.
+    pub data: DataConditioning<'a>,
+    /// The previously simulated nodes; built for the same grid.
+    pub nodes: &'a NodeSearch,
+}
+
+/// Visit the grid's nodes in random order, computing each value from the
+/// data and the informed nodes the searches select, and return values in
+/// node order.
 fn sequential<R, F>(
     data: &[Sample],
-    nodes: &[Point3],
-    search: Search,
+    grid: &Grid,
+    searches: Searches<'_>,
     rng: &mut R,
     mut draw: F,
 ) -> Result<Vec<f64>>
@@ -32,30 +70,82 @@ where
     R: Rng + ?Sized,
     F: FnMut(&[Sample], Point3, &mut R) -> Result<f64>,
 {
-    let mut path: Vec<(usize, Point3)> = nodes.iter().copied().enumerate().collect();
+    if searches.nodes.counts() != grid.counts() {
+        return Err(Error::invalid(
+            "node search",
+            format!(
+                "built for a {:?} grid, used with {:?}",
+                searches.nodes.counts(),
+                grid.counts()
+            ),
+        ));
+    }
+    // Nodes holding a datum take its value and are never simulated.
+    let mut fixed: Vec<Option<f64>> = vec![None; grid.len()];
+    let mut informed = vec![false; grid.len()];
+    let mut values = vec![0.0; grid.len()];
+    let data_search = match searches.data {
+        DataConditioning::Search(search) => {
+            for d in data {
+                if let Some(i) = grid.node_index(d.location())
+                    && grid.node(i).distance(d.location()) < COINCIDENT
+                    && let Some(slot) = fixed.get_mut(i)
+                {
+                    *slot = Some(d.value());
+                }
+            }
+            Some((search, SuperBlock::new(data)))
+        }
+        DataConditioning::AssignToNodes { shared, outside } => {
+            for (node, row) in assign_to_nodes(data, grid, shared, outside)?
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(d) = row.and_then(|r| data.get(r)) {
+                    // Held data are informed nodes for the node search.
+                    if let (Some(f), Some(i), Some(v)) = (
+                        fixed.get_mut(node),
+                        informed.get_mut(node),
+                        values.get_mut(node),
+                    ) {
+                        (*f, *i, *v) = (Some(d.value()), true, d.value());
+                    }
+                }
+            }
+            None
+        }
+    };
+    let mut path: Vec<usize> = (0..grid.len()).collect();
     path.shuffle(rng);
 
-    let mut conditioning = data.to_vec();
-    conditioning.reserve(nodes.len());
-    let mut simulated = Vec::with_capacity(nodes.len());
-    for (index, node) in path {
-        let existing = conditioning
-            .iter()
-            .find(|s| s.location().distance(node) < COINCIDENT)
-            .map(Sample::value);
-        let value = if let Some(v) = existing {
+    for index in path {
+        let node = grid.node(index);
+        let value = if let Some(v) = fixed.get(index).copied().flatten() {
             v
         } else {
-            let v = draw(&search.select(&conditioning, node), node, rng)?;
-            // Only new locations join the conditioning set: a duplicate
-            // location would make every later kriging system singular.
-            conditioning.push(Sample::new(node, v)?);
+            let mut conditioning = match &data_search {
+                Some((search, data_index)) => search.select_samples(data_index, node)?,
+                None => Vec::new(),
+            };
+            for n in searches
+                .nodes
+                .select(grid, index, |i| informed.get(i).copied().unwrap_or(false))?
+            {
+                if let Some(&v) = values.get(n) {
+                    conditioning.push(Sample::new(grid.node(n), v)?);
+                }
+            }
+            let v = draw(&conditioning, node, rng)?;
+            if let Some(flag) = informed.get_mut(index) {
+                *flag = true;
+            }
             v
         };
-        simulated.push((index, value));
+        if let Some(slot) = values.get_mut(index) {
+            *slot = value;
+        }
     }
-    simulated.sort_by_key(|&(i, _)| i);
-    Ok(simulated.into_iter().map(|(_, v)| v).collect())
+    Ok(values)
 }
 
 /// One realization of **sequential Gaussian simulation**.
@@ -64,21 +154,27 @@ where
 /// `mean` (0 after [`crate::transform::normal_scores`]), and `model` should
 /// have a sill of 1. Each node draws from N(SK estimate, SK variance).
 ///
+/// Values are returned in node order (x fastest).
+///
 /// # Errors
-/// [`Error::SingularSystem`] if a kriging system fails (e.g. duplicate data
-/// locations).
+/// - [`Error::SingularSystem`] if a kriging system fails (e.g. duplicate data
+///   locations);
+/// - [`Error::TooFewData`] if the data search requires more data than it
+///   finds;
+/// - [`Error::InvalidInput`] if the node search was built for another grid,
+///   or, under [`DataConditioning::AssignToNodes`], the data break its policies.
 pub fn sgsim<R>(
     data: &[Sample],
-    nodes: &[Point3],
+    grid: &Grid,
     model: &CovarianceModel,
     mean: f64,
-    search: Search,
+    searches: Searches<'_>,
     rng: &mut R,
 ) -> Result<Vec<f64>>
 where
     R: Rng + ?Sized,
 {
-    sequential(data, nodes, search, rng, |conditioning, node, rng| {
+    sequential(data, grid, searches, rng, |conditioning, node, rng| {
         let estimate = simple_kriging(conditioning, node, model, mean)?;
         let deviate: f64 = StandardNormal.sample(rng);
         Ok(estimate.variance.sqrt().mul_add(deviate, estimate.value))
@@ -93,14 +189,18 @@ where
 /// `model` is the indicator covariance.
 ///
 /// # Errors
-/// [`Error::InvalidInput`] if `data` is empty (p₀ is undefined), or
-/// [`Error::SingularSystem`] if a kriging system fails.
+/// - [`Error::InvalidInput`] if `data` is empty (p₀ is undefined), the
+///   node search was built for another grid, or, under
+///   [`DataConditioning::AssignToNodes`], the data break its policies;
+/// - [`Error::SingularSystem`] if a kriging system fails;
+/// - [`Error::TooFewData`] if the data search requires more data than it
+///   finds.
 pub fn sisim<R>(
     data: &[Sample],
-    nodes: &[Point3],
+    grid: &Grid,
     threshold: f64,
     model: &CovarianceModel,
-    search: Search,
+    searches: Searches<'_>,
     rng: &mut R,
 ) -> Result<Vec<bool>>
 where
@@ -116,8 +216,8 @@ where
 
     let simulated = sequential(
         &indicators,
-        nodes,
-        search,
+        grid,
+        searches,
         rng,
         |conditioning, node, rng| {
             let p = simple_kriging(conditioning, node, model, p0)?
@@ -137,6 +237,8 @@ const fn indicator(below: bool) -> f64 {
 mod tests {
     use super::*;
     use crate::model::{Kind, Structure, VariogramModel};
+    use crate::search::{SearchEllipsoid, TableExtent};
+    use crate::simulation::Axis;
     use approx::assert_abs_diff_eq;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
@@ -144,8 +246,23 @@ mod tests {
     fn s(x: f64, v: f64) -> Sample {
         Sample::new(Point3::new(x, 0.0, 0.0), v).unwrap()
     }
-    fn at(x: f64) -> Point3 {
-        Point3::new(x, 0.0, 0.0)
+    /// A 1-D grid: `count` nodes from `first` with `spacing`.
+    fn line(count: usize, first: f64, spacing: f64) -> Grid {
+        let one = Axis {
+            count: 1,
+            first_center: 0.0,
+            spacing: 1.0,
+        };
+        Grid::new(
+            Axis {
+                count,
+                first_center: first,
+                spacing,
+            },
+            one,
+            one,
+        )
+        .unwrap()
     }
     fn exp_cov(range: f64) -> CovarianceModel {
         CovarianceModel::try_from(
@@ -157,8 +274,19 @@ mod tests {
         )
         .unwrap()
     }
-    fn near() -> Search {
-        Search::new(12, f64::INFINITY).unwrap()
+    fn near() -> DataSearch {
+        DataSearch::new(SearchEllipsoid::unlimited(), 0, 12).unwrap()
+    }
+    fn nodes(grid: &Grid, model: &CovarianceModel, max: usize) -> NodeSearch {
+        NodeSearch::new(
+            grid,
+            &SearchEllipsoid::unlimited(),
+            model,
+            max,
+            None,
+            TableExtent::Ellipsoid,
+        )
+        .unwrap()
     }
     fn rng(seed: u64) -> ChaCha8Rng {
         ChaCha8Rng::seed_from_u64(seed)
@@ -167,73 +295,150 @@ mod tests {
     #[test]
     fn sgsim_reproduces_data_at_data_locations() {
         let data = [s(0.0, 1.5), s(5.0, -0.5)];
-        let nodes = [at(0.0), at(2.0), at(5.0), at(0.0)];
-        let r = sgsim(
-            &data,
-            &nodes,
-            &exp_cov(3.0),
-            0.0,
-            Search::unlimited(),
-            &mut rng(1),
-        )
-        .unwrap();
+        let g = line(6, 0.0, 1.0);
+        let m = exp_cov(3.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&DataSearch::unlimited()),
+            nodes: &ns,
+        };
+        let r = sgsim(&data, &g, &m, 0.0, searches, &mut rng(1)).unwrap();
         assert_abs_diff_eq!(r[0], 1.5);
-        assert_abs_diff_eq!(r[2], -0.5);
-        assert_abs_diff_eq!(r[3], 1.5);
+        assert_abs_diff_eq!(r[5], -0.5);
+        assert_eq!(r.len(), 6);
     }
 
     #[test]
     fn sgsim_same_seed_same_realization() {
         let data = [s(0.0, 1.0)];
-        let nodes: Vec<Point3> = (1..20).map(|i| at(f64::from(i))).collect();
-        let a = sgsim(&data, &nodes, &exp_cov(5.0), 0.0, near(), &mut rng(7)).unwrap();
-        let b = sgsim(&data, &nodes, &exp_cov(5.0), 0.0, near(), &mut rng(7)).unwrap();
-        let c = sgsim(&data, &nodes, &exp_cov(5.0), 0.0, near(), &mut rng(8)).unwrap();
-        assert_eq!(a, b);
-        assert_ne!(a, c);
+        let g = line(20, 1.0, 1.0);
+        let m = exp_cov(5.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&near()),
+            nodes: &ns,
+        };
+        let run = |seed| sgsim(&data, &g, &m, 0.0, searches, &mut rng(seed)).unwrap();
+        assert_eq!(run(7), run(7));
+        assert_ne!(run(7), run(8));
     }
 
     #[test]
     fn sgsim_unconditional_moments_are_standard_normal() {
         // Nodes far apart ⇒ independent N(0,1) draws.
-        let nodes: Vec<Point3> = (0..400).map(|i| at(f64::from(i) * 1000.0)).collect();
-        let r = sgsim(&[], &nodes, &exp_cov(1.0), 0.0, near(), &mut rng(3)).unwrap();
-        let m = mean(&r).unwrap();
-        let var = r.iter().map(|v| (v - m).powi(2)).sum::<f64>() / 399.0;
-        assert!(m.abs() < 0.2, "mean {m}");
+        let g = line(400, 0.0, 1000.0);
+        let m = exp_cov(1.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&near()),
+            nodes: &ns,
+        };
+        let r = sgsim(&[], &g, &m, 0.0, searches, &mut rng(3)).unwrap();
+        let mu = mean(&r).unwrap();
+        let var = r.iter().map(|v| (v - mu).powi(2)).sum::<f64>() / 399.0;
+        assert!(mu.abs() < 0.2, "mean {mu}");
         assert!((var - 1.0).abs() < 0.2, "variance {var}");
     }
 
     #[test]
-    fn bounded_search_matches_unlimited_when_it_covers_everything() {
+    fn bounded_searches_match_unlimited_when_they_cover_everything() {
+        // 7 nodes and 2 data: 12 data and 12 nodes already cover everything.
         let data = [s(0.0, 1.0), s(4.0, -1.0)];
-        let nodes: Vec<Point3> = (1..8).map(|i| at(f64::from(i) * 0.5)).collect();
+        let g = line(7, 0.5, 0.5);
+        let m = exp_cov(3.0);
+        let (all, twelve) = (nodes(&g, &m, 100), nodes(&g, &m, 12));
         let a = sgsim(
             &data,
-            &nodes,
-            &exp_cov(3.0),
+            &g,
+            &m,
             0.0,
-            Search::unlimited(),
+            Searches {
+                data: DataConditioning::Search(&DataSearch::unlimited()),
+                nodes: &all,
+            },
             &mut rng(5),
         )
         .unwrap();
-        let b = sgsim(&data, &nodes, &exp_cov(3.0), 0.0, near(), &mut rng(5)).unwrap();
+        let b = sgsim(
+            &data,
+            &g,
+            &m,
+            0.0,
+            Searches {
+                data: DataConditioning::Search(&near()),
+                nodes: &twelve,
+            },
+            &mut rng(5),
+        )
+        .unwrap();
         for (x, y) in a.iter().zip(&b) {
             assert_abs_diff_eq!(x, y, epsilon = 1e-12);
         }
     }
 
     #[test]
+    fn the_node_search_shapes_the_realization() {
+        // With no data, max_nodes = 1 and max_nodes = 12 krige from
+        // different neighbourhoods, so the same seed gives different fields;
+        // and the node search must belong to the grid.
+        let g = line(30, 0.0, 1.0);
+        let m = exp_cov(10.0);
+        let (one, twelve) = (nodes(&g, &m, 1), nodes(&g, &m, 12));
+        let run = |ns: &NodeSearch| {
+            sgsim(
+                &[],
+                &g,
+                &m,
+                0.0,
+                Searches {
+                    data: DataConditioning::Search(&near()),
+                    nodes: ns,
+                },
+                &mut rng(9),
+            )
+        };
+        assert_ne!(run(&one).unwrap(), run(&twelve).unwrap());
+        let other = line(31, 0.0, 1.0);
+        let wrong = nodes(&other, &m, 12);
+        assert!(run(&wrong).is_err(), "node search for another grid");
+    }
+
+    #[test]
+    fn coincident_nodes_take_the_datum_and_are_not_reused() {
+        // A datum on node 2: the node holds it exactly, and kriging its
+        // neighbours does not see that location twice (which would make
+        // the system singular).
+        let data = [s(2.0, 0.7)];
+        let g = line(5, 0.0, 1.0);
+        let m = exp_cov(4.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&DataSearch::unlimited()),
+            nodes: &ns,
+        };
+        for seed in 0..20 {
+            let r = sgsim(&data, &g, &m, 0.0, searches, &mut rng(seed)).unwrap();
+            assert_abs_diff_eq!(r[2], 0.7);
+        }
+    }
+
+    #[test]
     fn sisim_constant_data_gives_constant_field() {
         let data = [s(0.0, 0.5)];
-        let nodes = [at(1.0), at(2.0)];
+        let g = line(2, 1.0, 1.0);
+        let m = exp_cov(3.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&near()),
+            nodes: &ns,
+        };
         for seed in 0..5 {
             assert_eq!(
-                sisim(&data, &nodes, 1.0, &exp_cov(3.0), near(), &mut rng(seed)).unwrap(),
+                sisim(&data, &g, 1.0, &m, searches, &mut rng(seed)).unwrap(),
                 vec![true, true]
             );
             assert_eq!(
-                sisim(&data, &nodes, 0.0, &exp_cov(3.0), near(), &mut rng(seed)).unwrap(),
+                sisim(&data, &g, 0.0, &m, searches, &mut rng(seed)).unwrap(),
                 vec![false, false]
             );
         }
@@ -243,12 +448,17 @@ mod tests {
     fn sisim_far_node_uses_global_proportion() {
         // Half the data below threshold; a node far from everything is a fair coin.
         let data = [s(0.0, 0.0), s(1.0, 2.0)];
+        let g = line(1, 1e6, 1.0);
+        let m = exp_cov(1.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&near()),
+            nodes: &ns,
+        };
         let mut r = rng(11);
         let n = 2000_u32;
         let hits: u32 = (0..n)
-            .map(|_| {
-                u32::from(sisim(&data, &[at(1e6)], 1.0, &exp_cov(1.0), near(), &mut r).unwrap()[0])
-            })
+            .map(|_| u32::from(sisim(&data, &g, 1.0, &m, searches, &mut r).unwrap()[0]))
             .sum();
         let freq = f64::from(hits) / f64::from(n);
         assert!((freq - 0.5).abs() < 0.05, "freq {freq}");
@@ -256,9 +466,88 @@ mod tests {
 
     #[test]
     fn sisim_needs_data() {
+        let g = line(1, 0.0, 1.0);
+        let m = exp_cov(1.0);
+        let ns = nodes(&g, &m, 12);
+        let searches = Searches {
+            data: DataConditioning::Search(&near()),
+            nodes: &ns,
+        };
         assert!(
-            sisim(&[], &[at(0.0)], 1.0, &exp_cov(1.0), near(), &mut rng(0)).is_err(),
+            sisim(&[], &g, 1.0, &m, searches, &mut rng(0)).is_err(),
             "no data"
         );
+    }
+
+    fn two_part(shared: OnSharedNode) -> DataConditioning<'static> {
+        DataConditioning::AssignToNodes {
+            shared,
+            outside: OutsideGrid::Error,
+        }
+    }
+
+    #[test]
+    fn two_part_search_holds_data_at_their_nodes() {
+        // Data near (not on) nodes 0 and 7 of a 10-node line are moved to
+        // them, hold their values, and condition their neighbours through
+        // the node search. With C(1) = exp(-3/100) ≈ 0.97, node 1 is
+        // N(≈ 2.9, ≈ 0.24²) given node 0's 3.0, so it lies above 1 by
+        // about 8σ; without the held datum it would be N(0, 1).
+        let g = line(10, 0.0, 1.0);
+        let m = exp_cov(100.0);
+        let ns = nodes(&g, &m, 12);
+        let data = [s(0.2, 3.0), s(6.9, -1.0)];
+        let searches = Searches {
+            data: two_part(OnSharedNode::Error),
+            nodes: &ns,
+        };
+        for seed in 0..10 {
+            let r = sgsim(&data, &g, &m, 0.0, searches, &mut rng(seed)).unwrap();
+            assert_abs_diff_eq!(r[0], 3.0);
+            assert_abs_diff_eq!(r[7], -1.0);
+            assert!(r[1] > 1.0, "node 1 conditioned by node 0: {}", r[1]);
+        }
+    }
+
+    #[test]
+    fn two_part_search_enforces_its_policies() {
+        // Two data in node 2's cell; one datum off the grid.
+        let g = line(5, 0.0, 1.0);
+        let m = exp_cov(5.0);
+        let ns = nodes(&g, &m, 12);
+        let shared = [s(1.8, 1.0), s(2.1, 2.0)];
+        let run = |data: &[Sample], conditioning| {
+            sgsim(
+                data,
+                &g,
+                &m,
+                0.0,
+                Searches {
+                    data: conditioning,
+                    nodes: &ns,
+                },
+                &mut rng(1),
+            )
+        };
+        assert!(
+            run(&shared, two_part(OnSharedNode::Error)).is_err(),
+            "shared node"
+        );
+        let kept = run(&shared, two_part(OnSharedNode::KeepClosest)).unwrap();
+        assert_abs_diff_eq!(kept[2], 2.0, epsilon = 0.0);
+        let outside = [s(9.0, 1.0)];
+        assert!(
+            run(&outside, two_part(OnSharedNode::Error)).is_err(),
+            "off the grid"
+        );
+        let clamped = run(
+            &outside,
+            DataConditioning::AssignToNodes {
+                shared: OnSharedNode::Error,
+                outside: OutsideGrid::ClampToEdge,
+            },
+        )
+        .unwrap();
+        assert_abs_diff_eq!(clamped[4], 1.0, epsilon = 0.0);
     }
 }
