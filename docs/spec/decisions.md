@@ -1503,3 +1503,687 @@ data), 21 statistics each (D-040):
   found at distance 0 and simple kriging returns it with zero variance, so
   that change is equivalent.
 - **Size:** about 0.67 MB per fixture, under D-011's 2 MB.
+
+## Finding F-019: gamv's directions, measures and output
+Read from `vendor/gslib-2.0/src/GAMV/GAMV.FOR` (line numbers as in the
+vendored file; 2026-11-28):
+
+This extends F-008 (lag classes, self-pairs, the cut-off and doubled
+omnidirectional counts, all confirmed by fixtures) to the rest of the
+routine.
+
+- **Silent coercions:**
+  - `xltol ≤ 0` becomes `xlag/2` (ll. 219, 456; `readparm` says so on
+    screen, `gamv` does not);
+  - `atol ≤ 0` and `dtol ≤ 0` become 45° (ll. 469, 481), with no message.
+  - `xlag ≤ 0` and negative bandwidths stop the program (ll. 154, 169).
+- **Direction test** (per pair, per direction, ll. 545–582). Directions
+  overlap freely; a pair can count in several directions.
+  1. Azimuth: the cosine between the *horizontal projection* of the pair and
+     the azimuth unit vector, `dcazm`, must satisfy `|dcazm| ≥ cos(atol)`.
+     The `abs` makes the test symmetric (h and −h both pass). A pair with
+     horizontal length `< EPSLON` gets `dcazm = 1` (passes).
+  2. Horizontal bandwidth: `|uvx·dy − uvy·dx| ≤ bandwh`.
+  3. Dip: the horizontal length is signed by `dcazm`, then `dcdec =
+     (dxy·cos(dip) + dz·sin(dip))/h` must satisfy `|dcdec| ≥ cos(dtol)`. The
+     dip is therefore measured in the vertical plane **containing the pair**,
+     not the one containing the direction: the tolerance region is not a
+     true 3-D cone. The test is skipped for slot 1 (`dcdec = 0`).
+  4. Vertical bandwidth: `|sin(dip)·dxy − cos(dip)·dz| ≤ bandwd`, applied in
+     every direction, including omnidirectional ones.
+- **Omnidirectional means "count twice".** `omni` is `atol ≥ 90` (l. 587).
+  For every type except cross-semivariograms (type 2), each accepted pair is
+  added a second time with tail and head swapped, so pair counts are doubled
+  and the tail and head means coincide. γ for type 1 is unaffected.
+- **Tail and head.** If `dcazm ≥ 0` and `dcdec ≥ 0`, datum i is the tail and
+  j the head; otherwise they swap. Output columns 5 and 6 are the tail and
+  head means.
+- **Trimming is inconsistent at `tmax`.** A data row is kept if some variable
+  has `tmin ≤ v < tmax` (l. 257), but a pair is rejected only when a value
+  is `< tmin` or `> tmax` (l. 623), so `v = tmax` is accepted in pairs.
+- **π:** `PI = 3.14159265` (l. 449), as in `cova3`.
+- **Standardisation** (`isill = 1`): for types 1, 9 and 10 with tail = head,
+  γ is divided by the variable's population variance (ll. 822–823).
+- **Output:** per variogram, then per direction, a title line and `nlag + 2`
+  lines in format `(1x,i3,1x,f12.3,1x,f12.5,1x,i8,4(1x,f14.5))` (l. 954).
+  Empty lags are written as zeros. (The header comment says directions
+  cycle fastest; the code loops over variograms outermost, directions
+  inside.)
+
+## D-041: Scope of the gamv spec
+- Status: decided
+- Topic: gamv.md
+- Question: What does the gamv spec cover?
+- Options: (A) directions and GSLIB lags, semivariogram of one variable;
+  (B) A plus multiple variables and cross-semivariograms; (C) all of gamv.
+- Decision: **(C) all of gamv:**
+  - lags and directions;
+  - all ten variogram types, including the negative-type forms (`abs(it) = 3`);
+  - multiple variables, with tail and head variables;
+  - indicator construction (types 9 and 10);
+  - sill standardisation;
+  - output.
+- Rationale: user's choice. One spec keeps the pair loop's shared rules
+  (geometry, ordering, trimming) consistent across types.
+- Consequences:
+  - Builds on what PR #4 already has: `CentredLags` (F-008), missing values
+    and trimming (`docs/spec/missing-values.md`, F-011), and the block-ordered
+    pair enumeration (D-031, D-034).
+  - New questions this opens:
+    - the omnidirectional branch of types 6 (pairwise relative) and 7 (log)
+      recomputes γ from `vrt`/`vrh`, not the swapped `vrtpr`/`vrhpr`
+      (`GAMV.FOR` ll. 730, 758): defect or not?
+    - trimming at `tmax` differs between reading and pairing (F-019);
+    - type-specific silent coercions: correlogram variances clamped to 0,
+      γ set to 0 when a denominator is below `EPSLON` (types 4 and 5), and
+      the `-999` sentinel for type −3;
+    - the indicator cut-off conventions (type 10 rounds with `int(v + 0.5)`).
+
+## D-042: Lag model for gamv
+- Status: decided (ported; the first version, written on `main`, proposed a
+  new lag type before PR #4's `CentredLags` was known)
+- Topic: gamv.md
+- Question: Which lag classes does directional gamv use, and what about
+  `sasim`'s `LagClasses`?
+- Decision:
+  - **`CentredLags`**, which already reproduces gamv's classes and is
+    verified by fixtures (F-008). No new lag type.
+  - `LagClasses` stays for `sasim` (and the `LagScheme` trait keeps both).
+- Rationale: one implementation of GSLIB's lags (`AGENTS.md`, *Conventions
+  are domain law, defined once*). GSLIB's SASIM does not use distance
+  classes at all:
+  - `getlag` (`SASIM.FOR`, l. 1072) takes the `nlag` grid offsets
+    `(ix, iy, iz)` with the lowest *model* variogram, over half the grid;
+  - the objective update (ll. 1609 ff.) touches only the two nodes at ±
+    each offset from a perturbed node, which costs O(nlag) per perturbation.
+- Consequences:
+  - **Consistency flag (user's request).** GSLIB has two lag concepts:
+    distance classes with tolerances (`gamv`) and exact lag vectors on a grid
+    (`sasim`, and `gam`, which works along grid directions). The `sasim` spec
+    should move it to lag vectors. Recorded in ROADMAP §2.
+  - **The user's working principle** for this spec: reproduce GSLIB first;
+    corrections and extensions come later and are flagged. `AGENTS.md` still
+    ranks *explicit failure* above *parity*, so silent coercions get an error
+    by default and a legacy policy. Where an earlier decision already chose
+    otherwise (D-017: no legacy policy for self-pairs or doubled counts), the
+    earlier decision stands (user, 2026-11-28).
+
+## D-043: Omnidirectional pairs when tail and head differ
+- Status: decided (user, 2026-11-28). It extends D-017, which stands: each
+  pair is reported once, and there are no self-pairs and no legacy policy.
+- Topic: gamv.md
+- Question: D-017 says doubling "has no effect on γ". That holds when tail
+  and head are the same variable. With different tail and head variables
+  (types 3, −3, 4, 5, 8) and for the tail and head means, GSLIB's doubling
+  *is* the omnidirectional definition: each pair is averaged over both
+  orderings (F-008, F-019). What does "count once" mean there?
+- Options: (A) average both orderings internally and report each pair
+  once; (B) one ordering, the stored `i < j` order; (C) forbid
+  omnidirectional directions when tail ≠ head.
+- Decision: **(A).**
+  - In an omnidirectional direction (`atol ≥ 90`), each accepted pair adds
+    both orderings to the sums, for every type except the
+    cross-semivariogram (type 2, which GSLIB does not double). γ, the means
+    and the correlogram's variances therefore equal GSLIB's.
+  - `pairs` reports **unordered pairs** (D-017). Types 6 and 7 count an
+    ordering only when its values are in the measure's domain. A pair with
+    at least one ordering in the domain counts once in `pairs`; orderings
+    out of the domain count in `skipped`.
+  - With tail = head this is exactly PR #4's current behaviour.
+- Rationale:
+  - Results equal GSLIB's and do not depend on the data's row order
+    (`AGENTS.md`, precedence 1).
+  - Reporting once keeps D-017.
+- Consequences:
+  - Harness: omnidirectional GSLIB `np` equals the number of in-domain
+    orderings. For types other than 6 and 7 that is exactly 2 × gslib-rs's
+    `pairs` (F-008's relation).
+  - Tests:
+    - omnidirectional `pairs` equals the unordered pair count;
+    - for types 3, 4 and 8 with tail ≠ head, the value equals the average of
+      the two orderings, and is unchanged when the data rows are permuted.
+
+## D-044: Non-positive tolerances
+- Status: decided
+- Topic: gamv.md
+- Question: How are GSLIB's coercions `xltol ≤ 0 → xlag/2` and
+  `atol, dtol ≤ 0 → 45°` handled?
+- Options: (A) one legacy policy for all three; (B) all three as "unset"
+  sentinels (`Option`); (C) split by kind.
+- Decision: **(C) split by kind.**
+  - **`xltol`**: the core (`CentredLags`) requires a finite `xltol > 0`, as
+    it already does. At the `.par`/CLI boundary an omitted or `≤ 0` tolerance
+    means `xlag/2`, in every mode. That is GSLIB's documented sentinel
+    (`gamv` header "if <0 then set to xlag/2"; `readparm` reports it,
+    `GAMV.FOR` l. 219), so it is translated, not coerced.
+  - **`atol`, `dtol`**: the core requires finite values `> 0`.
+    - By default, `≤ 0` is `Error::InvalidInput`.
+    - The legacy policy `NonPositiveAngleTolerance::Gslib45` substitutes
+      45° at the boundary, as GSLIB does silently (ll. 469, 481). The
+      GSLIB-compatibility mode and the harness select it.
+  - **Already errors in GSLIB, kept as errors:**
+    - `xlag ≤ 0`;
+    - a negative `bandwh` or `bandwd`;
+    - `nlag < 1`;
+    - non-finite inputs (new).
+- Rationale:
+  - `AGENTS.md`, *Silent coercions are opt-in*: only the undocumented,
+    surprising coercions become errors (`atol = 0` silently means a
+    90°-wide window).
+  - The documented `xltol` default stays a sentinel at the I/O boundary
+    (`AGENTS.md`, *Missing values … sentinels only at the I/O boundary*).
+- Consequences:
+  - Listed in ROADMAP §2.
+  - Tests:
+    - `atol = 0` errors by default and equals `atol = 45` under the policy;
+    - an omitted CLI `--xltol` equals `--xltol` = `xlag/2`;
+    - a zero tolerance in `CentredLags` is an error.
+
+## D-045: Direction-window geometry
+- Status: decided
+- Topic: gamv.md
+- Question: Reproduce GSLIB's four separate tests (azimuth on the horizontal
+  projection, horizontal bandwidth, dip in the pair's own vertical plane,
+  vertical bandwidth), or use a true 3-D cone?
+- Options: (A) reproduce GSLIB as the only geometry and flag the cone for
+  later; (B) both, with GSLIB as the default; (C) the cone as default and
+  GSLIB as a legacy policy.
+- Decision: **(A).** The tests, their order, their strict and non-strict
+  comparisons, and their special cases are exactly as in F-019:
+  - a pair with horizontal length `< EPSLON` passes the azimuth test;
+  - the horizontal length is signed by `dcazm` before the dip test;
+  - lag-1 pairs skip the dip test;
+  - the vertical bandwidth is applied to every direction.
+- Rationale:
+  - The GSLIB window is a different definition, not a silent coercion or an
+    outright defect, so the user's principle (D-042) says reproduce and
+    flag.
+  - A second implementation now would be speculative (`AGENTS.md`, *No
+    ceremony*).
+- Consequences:
+  - **Flagged extension:** a true-cone tolerance (angle to the 3-D direction
+    vector, cylindrical bandwidth), recorded in ROADMAP §5.
+  - The module docs describe the GSLIB window precisely, including that it
+    is not a cone for dipping directions.
+
+## Finding F-020: Pairs on a tolerance boundary are decided by rounding
+Computed in IEEE double (Python `math`), reproducing `GAMV.FOR`'s operation
+order (ll. 465–471, 553–560). **This is not a reference run;** it shows
+sensitivity only.
+
+- With `PI = 3.14159265` (GSLIB), `azm = 0`, `atol = 45`:
+  - the pair (1, 1) passes, `|dcazm| − cos(atol) = +6.3e-10`;
+  - the pair (−1, 1) is rejected, `−1.9e-9`.
+
+  The azimuth vector sits about 1.8e-9 rad off north, so the two diagonals,
+  which are symmetric about the direction, are treated differently.
+- With `PI = 3.14159265`, `azm = 90`, `atol = 45`: both diagonals are
+  rejected (`−6.3e-10`).
+- With exact π, the same pairs miss the boundary by 1e-16 to 2e-16 either
+  way. They are symmetric, but still decided by the last bit.
+- Implication: on regularly spaced data, pair counts in common directions
+  (0°, 45°, 90°, with tolerances of 22.5° or 45°) depend on π and on the
+  exact operation order. A count that differs by one pair fails D-010's
+  exact-structure rule.
+
+## D-046: π and boundary pairs in gamv
+- Status: decided
+- Topic: gamv.md
+- Question: Which π does gamv use, given that pairs on a window edge are
+  decided by rounding (F-020)?
+- Options: (A) exact π by default, GSLIB's π via a legacy policy, with
+  GSLIB's operation order in both modes; (B) always GSLIB's π; (C) A plus an
+  explicit boundary tolerance now.
+- Decision: **(A).**
+  - Default: exact π.
+  - The legacy policy `PiConstant::Gslib` uses `3.14159265`, gamv's `PI`
+    (`GAMV.FOR` l. 449). It is the same policy planned for `setrot`
+    (`3.141592654`) and `cova3` (`3.14159265`), each routine with its own
+    literal.
+  - The direction unit vectors and cosine thresholds are computed with
+    GSLIB's operation order in both modes:
+    - `(90 − azm)·π/180`, then `cos` and `sin`;
+    - `cos(atol·π/180)`;
+    - the same for dip.
+  - The harness selects `PiConstant::Gslib`.
+- Rationale:
+  - One π policy for the whole library (`AGENTS.md`, *Conventions … defined
+    once*; ROADMAP §2, π row).
+  - Exact counts against GSLIB need its π and order (F-020, D-010).
+- Consequences:
+  - **Flagged correction:** a symmetric boundary rule (accept within an
+    explicit cosine tolerance), so that edge pairs do not depend on the last
+    bit. Recorded in ROADMAP §2.
+  - Tests:
+    - under `PiConstant::Gslib`, the F-020 cases reproduce: (1, 1) is
+      accepted and (−1, 1) rejected at `azm = 0`, `atol = 45`;
+    - under exact π, mirror-image pairs are treated identically for azimuths
+      0, 45 and 90.
+  - **Correction (implementation, plan step 1):** the second test claim was
+    wrong. F-020's own numbers show that with exact π at `azm = 45`, (1, 0)
+    is accepted and (0, 1) rejected. Exact π is symmetric for azimuths 0 and
+    90 only by luck of rounding. The test now records the actual outcomes
+    (`exact_pi_edge_pairs_are_decided_by_rounding`). This strengthens the
+    flagged correction: only an explicit boundary rule makes edge pairs
+    symmetric.
+
+## D-047: Types 6 and 7 in omnidirectional mode
+- Status: decided
+- Topic: gamv.md
+- Question: The omnidirectional branch of types 6 and 7 recomputes γ from
+  `vrt`/`vrh`, not the swapped `vrtpr`/`vrhpr` (`GAMV.FOR` ll. 730, 758).
+  Fix it?
+- Options: (A) fix by default, with a legacy policy reproducing the
+  defect; (B) reproduce and flag; (C) fix with no legacy policy.
+- Decision: **(A).**
+  - By default the swapped contribution uses `vrtpr`/`vrhpr`, as every other
+    type does.
+  - The legacy policy `OmniRelativeLog::GslibDuplicate` reproduces GSLIB:
+    the guard is on the swapped values and the formula on the unswapped
+    ones. The harness selects it.
+  - In **either** mode, a non-finite result returns
+    `Error::InvalidInput`, never a `NaN` or `Inf` in the output.
+    (`Error::NonFinite` describes a data-file cell, so it does not fit.)
+- Rationale:
+  - A known copy-paste defect that can produce `NaN`/`Inf` (`AGENTS.md`:
+    fix, document, test; *never silently coerce NaN/Inf*).
+  - With tail = head the two modes agree exactly, so most fixtures are
+    unaffected.
+- Consequences:
+  - Listed in ROADMAP §2.
+  - Tests:
+    - for tail = head, both modes give identical output;
+    - for tail ≠ head, the default equals the mean of both orderings;
+    - a constructed case where the legacy formula would divide by about 0
+      returns the error.
+
+## Finding F-021: Trimming conventions across GSLIB programs
+Read from the vendored source (2026-11-28):
+
+- **The usual rule is valid iff `tmin ≤ v < tmax`**, i.e. rejected if
+  `v < tmin or v ≥ tmax`:
+  - `KT3D.FOR` ll. 277, 307;
+  - `SGSIM.FOR` ll. 359, 455;
+  - `NSCORE.FOR` ll. 164, 262;
+  - `DECLUS.FOR` ll. 180, 412;
+  - `IK3D.FOR` l. 257;
+  - `GAM.FOR` ll. 249, 290, 325, 474.
+- `GAMV.FOR` applies **three different intervals**:
+  - **reading**, statistics, sills and the min/max check: `tmin ≤ v < tmax`
+    (ll. 257, 271, 349);
+  - **pair acceptance**: rejected only if `v < tmin or v > tmax`, so valid
+    is `[tmin, tmax]` and `v = tmax` is accepted (l. 623);
+  - **indicator construction**: missing if `v ≤ tmin or v > tmax`, so valid
+    is `(tmin, tmax]` and **`v = tmin` becomes missing** (l. 314). With the
+    common choice `tmin = 0`, zero-valued data count for the
+    semivariogram but are dropped from indicator variograms.
+- `IK3D.FOR` ll. 612–613 also use the closed `[tmin, tmax]` interval for
+  one test.
+
+## D-048: Trimming limits in gamv
+- Status: decided
+- Topic: gamv.md
+- Question: gamv uses three trimming intervals (F-021). Which does
+  gslib-rs use?
+- Options: (A) one rule, `tmin ≤ v < tmax`, applied once at the I/O
+  boundary, with a legacy policy for gamv's three intervals; (B) the three
+  intervals always; (C) one closed rule.
+- Decision: **(A).**
+  - The I/O boundary turns values outside `[tmin, tmax)` into `None`, once.
+  - Rows with no valid variable are dropped, as in GSLIB's reading.
+  - The core never sees `tmin`/`tmax`.
+  - The legacy policy `Trimming::GslibGamv` lives in the `.par`/fixture
+    adapter and reproduces all three intervals by handing the core:
+    - values valid for **pairing** under `[tmin, tmax]`, for rows kept
+      under `[tmin, tmax)`;
+    - **sills** computed under `[tmin, tmax)`;
+    - **indicator inputs** valid under `(tmin, tmax]`.
+- Rationale:
+  - This is the convention in every other program read (F-021).
+  - `AGENTS.md`, *Missing values are `Option`; trimming limits exist only at
+    the I/O boundary*.
+  - It ends the silent loss of data at `v = tmin` from indicators.
+- Consequences:
+  - **API:** the core accepts the sills used for standardisation and the
+    indicator variables as explicit inputs (with helpers that compute them
+    from the same `Option` values), so the adapter can supply the legacy
+    ones. See the API question.
+  - Uses PR #4's trimming (D-019, `GslibData::extract`). The legacy
+    intervals live only in the fixture adapter, matching ROADMAP §2's "per
+    program, only if a fixture shows it matters": with several variables,
+    they do.
+  - Listed in ROADMAP §2.
+  - Tests:
+    - `v = tmin` is valid and `v = tmax` is missing, in every use;
+    - under the legacy adapter, a datum at `tmax` pairs and a datum at
+      `tmin` is missing for indicators.
+
+## D-049: Undefined values and silent fallbacks per variogram type
+- Status: decided
+- Topic: gamv.md
+- Question: How are GSLIB's silent fallbacks handled (`GAMV.FOR` ll.
+  822–871)?
+  - γ = 0 for an undefined correlogram or general relative value;
+  - γ = −999 for type −3 with a missing sill;
+  - standardisation silently skipped when a sill is ≤ 0;
+  - variance clamped to 0;
+  - type 6/7 pairs skipped.
+- Options: (A) make each explicit; undefined → `None`, a bad sill → error,
+  keep the guards, legacy values at the boundary; (B) A, with errors
+  instead of `None`; (C) reproduce and flag.
+- Decision: **(A).**
+  - **Undefined lag values** become `gamma: None` with the lag's pair count
+    still reported:
+    - type 4 when `hv·tv < EPSLON`;
+    - type 5 when the squared lag mean is `< EPSLON`;
+    - type −3 when a sill is unavailable.
+  - **Standardisation** requested (`isill = 1`) with a sill that is ≤ 0 or
+    unavailable, for a variogram GSLIB would standardise (types 1, 9 and 10
+    with tail = head), is `Error::InvalidInput`.
+  - **Kept as documented guards:**
+    - clamping a negative correlogram variance to 0 before `sqrt`. It only
+      absorbs rounding, and an undefined result is still caught by the
+      `hv·tv < EPSLON` rule;
+    - the pair-domain rules of types 6 and 7 (`|vrt + vrh| > EPSLON`; both
+      values `> EPSLON` for logs). Each lag also reports how many pairs it
+      skipped.
+  - **Legacy policy** `UndefinedLag::GslibValues`, applied at the output
+    boundary: `None` is written as 0 (types 4, 5) or −999 (type −3), and a
+    sill ≤ 0 skips standardisation silently. The harness selects it.
+- Rationale:
+  - A 0 or −999 that looks like data is a silent coercion (`AGENTS.md`,
+    *Legacy behaviour*).
+  - `None` is the existing "no value" representation (`Lag::gamma`), and
+    one undefined lag should not fail a whole multi-direction run.
+- Consequences:
+  - Listed in ROADMAP §2.
+  - Tests:
+    - a lag whose tail values are all equal gives `None` for the correlogram
+      and 0 under the policy;
+    - a constant variable with `isill = 1` is an error by default and
+      unstandardised under the policy;
+    - the type-6 and type-7 skip counts are exact on a constructed case.
+
+## Finding F-022: Indicator conventions
+Read from the vendored source and gslib-rs (2026-11-28):
+
+- **gamv and gam, type 9 (continuous):** the indicator is 0 if `v < cut`,
+  else 1, i.e. `I = 1` when `v ≥ cut` (`GAMV.FOR` l. 318; `GAM.FOR` same
+  test).
+- **IK3D:** the indicator is 1 when `v ≤ thres` (`IK3D.FOR` ll. 291, 343).
+- γ is unchanged by `I → 1 − I`, but the **partitions differ when data
+  equal the cut-off**:
+  - gamv uses {v < c} | {v ≥ c};
+  - IK3D uses {v ≤ c} | {v > c}.
+
+  The tail/head means also report `P(v ≥ c)` rather than `P(v ≤ c)`.
+- **gamv, type 10 (categorical):** `I = 1` when `int(v + 0.5) = int(cut +
+  0.5)` (l. 327). `int` truncates toward zero, so this is not
+  round-to-nearest for negative values: −0.7 is counted as category 0.
+- **gamv, type 10 sill:** `p0` and `p1` are accumulated only for type 9
+  (ll. 317–324). For type 10, `p0 = 0` and the sill is 0, so standardisation
+  is always silently skipped for categorical indicators. Under D-049 this
+  would now be an error.
+- **gslib-rs `sasim`:** `indicators` uses `1 if v < threshold`
+  (`simulation/sasim.rs` l. 417), a third partition. That is outside this
+  spec, but it is a consistency flag.
+
+## D-050: Indicator variograms (types 9 and 10)
+- Status: decided
+- Topic: gamv.md
+- Question: Which indicator conventions does gamv use (F-022)?
+- Options: (A) one library-wide `I = 1 if v ≤ c`, exact integral
+  categories, the proper categorical sill, and a legacy policy; (B) keep
+  gamv's `v ≥ c` and fix only the categorical defects; (C) reproduce all of
+  it and flag.
+- Decision: **(A).**
+  - **Continuous** (type 9): `I = 1` if `v ≤ c`, else 0. This is the IK3D
+    convention, and the library's convention for indicators, defined once.
+  - **Categorical** (type 10):
+    - `I = 1` if `v = c` exactly;
+    - `v` and `c` must be integral (finite, `fract = 0`), otherwise
+      `Error::InvalidInput`;
+    - the sill is `p(1 − p)`, with p the proportion of the category among
+      the valid data.
+  - **Missing** values stay missing in the indicator (`None`).
+  - **Legacy policy** `Indicators::GslibGamv`, applied in the adapter
+    (D-048), reproduces:
+    - `I = 1` if `v ≥ c`;
+    - `int(v + 0.5)` category matching;
+    - a categorical sill of 0;
+    - the `(tmin, tmax]` validity.
+
+    The harness selects it.
+- Rationale:
+  - Indicator variograms feed indicator kriging and simulation, which use
+    `v ≤ c` (`IK3D.FOR` ll. 291, 343), so ties at the cut-off must fall on
+    the same side (`AGENTS.md`, *Conventions are domain law, defined once*).
+  - The categorical rounding and the missing sill are defects (`AGENTS.md`:
+    fix, document, test).
+- Consequences:
+  - Listed in ROADMAP §2.
+  - **Consistency flag:** `sasim`'s `indicators` uses `v < t` (F-022); its
+    spec should adopt the library convention.
+  - With the GSLIB `.par` check `tmin ≤ 0 < 1 < tmax` for indicators
+    (`GAMV.FOR` ll. 188–189): no longer needed in the core, because
+    indicators are built from `Option` values. Kept in the legacy adapter.
+  - Tests:
+    - data equal to the cut-off have `I = 1`;
+    - under the policy those data have `I = 0` and γ matches GSLIB;
+    - the categorical sill equals p(1 − p);
+    - a non-integral category is an error;
+    - −0.7 under the policy matches category 0.
+
+## D-051: gamv API shape
+- Status: decided (ported: the questions were settled in this session; the
+  kernel is rebuilt on PR #4's enumeration, and the standardisation inputs
+  are as refined during implementation)
+- Topic: gamv.md
+- Question: What does the library API look like?
+- Options: (A) one request, one function, indicators as derived variables,
+  core policies as a value; (B) A with indicators as kinds; (C) one
+  function per measure.
+- Decision: **(A).**
+  - `variogram::gamv(data: &Data, request: &GamvRequest) ->
+    Result<Vec<DirectionalVariogram>>`, with the results indexed by
+    [variogram][direction] (GSLIB's output order, F-019).
+  - **Data:** coordinates `Vec<Point3>`, and variables as columns of
+    `Option<f64>`, all the same length (checked at construction).
+  - **Request:**
+    - `lags: CentredLags` (D-042);
+    - `Vec<Direction>`: azimuth, `atol`, `bandh`, dip, `dtol`, `bandv`,
+      validated at construction (D-044);
+    - `Vec<VariogramSpec { tail, head, kind, standardize }>`;
+    - `sills: Vec<Option<f64>>`, one per variable or empty. Type −3 needs
+      sills even without standardisation. A negative sill (GSLIB's −999
+      marker) counts as unavailable;
+    - `policies: GamvPolicies { pi, omni_relative_log }`. `Default` is the
+      corrected behaviour; `GamvPolicies::gslib()` selects the legacy
+      policies. There is no self-pair policy (D-017).
+  - **`kind`:** `Semivariogram` (1), `CrossSemivariogram` (2), `Covariance`
+    (3), `CovarianceAsVariogram` (−3), `Correlogram` (4), `GeneralRelative`
+    (5), `PairwiseRelative` (6), `Logarithmic` (7) and `Madogram` (8).
+  - **Standardisation is per variogram.** Requesting it for anything but a
+    semivariogram with tail = head, or with a sill ≤ 0 or missing, is
+    `Error::InvalidInput`. GSLIB silently ignores or skips these. Under the
+    legacy behaviour the adapter requests standardisation only where GSLIB
+    applies it (D-049).
+  - **Indicators** (types 9 and 10) are not kinds. `indicator_continuous`
+    and `indicator_categorical` return a derived variable and its sill
+    (D-050). The request computes their `Semivariogram`.
+  - **Per-lag output:** `mean_distance`, `gamma`, `pairs` (unordered,
+    D-043), `tail_mean`, `head_mean`, `tail_variance` and `head_variance`
+    (correlogram only) and `skipped` (types 6, 7), all `Option` where
+    undefined. All `nlag + 2` lags are returned.
+  - **Policies outside the core:**
+    - legacy trimming and indicators sit in the fixture adapter;
+    - `NonPositiveAngleTolerance` applies where directions are built from
+      `.par`/CLI input;
+    - GSLIB's 0/−999 for undefined lags applies at output (D-049; PR #4's
+      D-023 codes).
+  - **Kernel:** PR #4's enumeration, unchanged in its numerical definition:
+    fixed row blocks, partners from the super-block search in block order,
+    and block sums combined in order (D-031, D-032, D-034). Each pair is
+    tested against every direction and added to every variogram, so each
+    pair is visited once.
+  - `experimental_variogram` (the omnidirectional semivariogram of
+    `Sample`s) stays as it is.
+- Rationale:
+  - Acceptance of a pair by lags and directions does not depend on
+    summation order, so pair counts match GSLIB exactly. The sums differ
+    from GSLIB's double loop only in the last bits, which the fixtures'
+    tolerances already cover (F-008).
+  - Results do not depend on the thread count (`AGENTS.md`, precedence 1).
+  - Policies are values (ROADMAP §4). Indicators as derived variables mirror
+    GSLIB's construction (it appends indicator columns, `GAMV.FOR` ll.
+    200–203).
+- Consequences:
+  - Inner loops work on flat slices (`AGENTS.md`, *Domain types vs. hot
+    loops*).
+  - A parallel `gamv` can split by row block exactly as `parallel.rs` does
+    for the semivariogram. Not part of this spec.
+
+## D-052: CLI and output format
+- Status: decided
+- Topic: gamv.md
+- Question: How do the CLI and the output files change?
+- Options: (A) rework the `variogram` subcommand around the new API, with
+  long-form CSV or GSLIB's layout at full precision; (B) library only for
+  now; (C) A with GSLIB's fixed formats exactly.
+- Decision: **(A).**
+  - **Flags** (alongside PR #4's missing-value flags, `--tmin`, `--tmax`,
+    `--no-trimming`, `--nan`, `--inf`):
+    - `--nlag`, `--xlag` and optional `--xltol` (omitted or ≤ 0: `xlag/2`,
+      D-044);
+    - a repeatable `--dir azm,atol,bandh,dip,dtol,bandv`;
+    - a repeatable `--vario tail,head,type[,cutoff]` using GSLIB's type
+      numbers, with 9 and 10 building indicators through the D-051 helpers;
+    - `--standardize`;
+    - `--gslib-compat`, which selects every legacy policy at once.
+  - **Output:**
+    - by default, long-form CSV: one row per variogram × direction × lag,
+      with every D-051 lag field and empty cells for `None`;
+    - `--format gamv` writes GSLIB's layout (title lines, then `nlag + 2`
+      rows per direction) with full-precision fields in place of `f12.3`,
+      `f12.5` and `f14.5`.
+  - **Plot:** each direction is drawn as its own series.
+- Rationale:
+  - D-042 already moves the CLI onto GSLIB lags.
+  - Full precision lets users compare against a widened reference run
+    without losing digits (`AGENTS.md`, *Reference build*: formats truncate
+    precision).
+- Consequences:
+  - The `--max-dist`/`--n-lags` flags are removed (a breaking CLI change).
+  - Exact fixed-format output is deferred to the `.par` adapter (PLAN M6),
+    if a workflow needs drop-in files.
+
+## Finding F-023: `atol = 90` drops exactly perpendicular pairs
+Found while implementing plan step 1, and covered by the test
+`atol_90_rejects_exactly_perpendicular_pairs` (IEEE double, GSLIB's
+operation order; not yet a reference run).
+
+- `atol = 90` makes a direction omnidirectional, but the azimuth test still
+  requires `|dcazm| ≥ cos(90°·π/180)`. That cosine is slightly positive in
+  floating point: about 6e-17 with exact π, and about 1.8e-9 with GSLIB's.
+- A pair exactly perpendicular to the azimuth has `dcazm = 0`, so it is
+  rejected. With `azm = 90`, `atol = 90`, every north–south pair is dropped,
+  under either π.
+- With `azm = 0`, the azimuth vector and the threshold come from the same
+  angle, so east–west pairs land exactly on the edge and are kept. GSLIB's
+  own `GAMV.PAR` uses `azm = 0`, which hides the problem.
+- Treatment: reproduced, as D-045 requires the four tests exactly. **Flagged
+  for later correction.**
+
+## Finding F-024: Tail/head order depends on the order of the data
+Found while implementing plan step 1, and covered by the tests
+`mixed_signs_swap_in_both_orders` and the reversal property.
+
+- GSLIB makes datum i the tail iff `dcazm ≥ 0` and `dcdec ≥ 0` (ll.
+  591–613). Reversing a pair negates both cosines exactly.
+- When the two signs differ (a pair along the azimuth but against the dip),
+  both orders are "swapped". Which datum is the tail then depends on which
+  comes first in the data file.
+- **Effect:**
+  - acceptance and type-1 γ are unaffected;
+  - tail and head means, and asymmetric measures with tail ≠ head (types 3,
+    4 and 8 in a directional, not omnidirectional, window), change if the
+    data rows are permuted.
+- Treatment: reproduced (W5). **Flagged for later correction**: results
+  should not depend on row order.
+- Also from step 1: the reference build must not fuse multiply-adds, or edge
+  pairs could be decided differently from gslib-rs's unfused arithmetic.
+  PR #4's recipe already builds with `-O0 -ffp-contract=off`
+  (`xtask/src/main.rs`).
+
+## Finding F-025: gamv pairs missing indicators as data
+Read from `GAMV.FOR` ll. 314–315 and confirmed by the fixture
+`gamv/indicator_missing_codes` (2026-11-28).
+
+- An indicator's source value with `v ≤ tmin` or `v > tmax` is stored as
+  `tmin − EPSLON`, with `EPSLON = 1e-20`. For any `|tmin|` above about
+  1e-4, that subtraction rounds back to `tmin` (in double and in single
+  precision). The pair test then rejects only values `< tmin` (l. 623), so
+  the "missing" indicator is paired as a datum of value `tmin`.
+- It matters when a row is kept because another variable is valid, while
+  the indicator's source is missing (for example, −999 codes with `tmin =
+  −998`).
+- In the fixture (`tmin = −998`), GSLIB's indicator γ reaches 1.4e5 and its
+  lag means about −135, instead of values in [0, 1]. The harness's legacy
+  reading reproduces this exactly, which confirms the mechanism.
+- gslib-rs: missing values stay `None` in indicators (D-050), so this does
+  not arise. **A GSLIB defect**, listed in ROADMAP §2; not reproduced
+  outside the fixture adapter.
+
+## Finding F-026: gamv's swapped ordering uses a half-open interval
+Read from `GAMV.FOR` ll. 637–638 (and the same test in every type's
+omnidirectional branch), and confirmed by the fixture
+`gamv/indicators_trimmed` (2026-11-28).
+
+- A pair's first ordering is rejected only if a value is `< tmin` or `>
+  tmax` (closed, l. 623). In an omnidirectional direction the swapped
+  ordering is added only if its values satisfy `tmin ≤ v < tmax`
+  (half-open).
+- So a datum at exactly `tmax` contributes one ordering per pair, not two:
+  - GSLIB's `np` falls short by the number of such pairs;
+  - its tail and head means no longer coincide.
+- In the fixture (`tmax = 10`, one datum at 10), the shortfall per lag was
+  1, 3, 12, 13, 14 and 4. That is exactly the number of accepted pairs
+  involving that datum, counted independently. This adds a fourth interval
+  to F-021's three.
+- gslib-rs: `v = tmax` is missing by default (D-048), so it does not arise.
+  The case declares the expected deviation `omnidirectional_at_tmax`: the
+  harness checks the count relation exactly and compares values only in
+  unaffected lags.
+
+## Finding F-027: Directional gamv parity (plan step 6, 2026-11-28)
+Eight new fixtures (`tests/fixtures/gslib/gamv/`) and a new harness test
+(`harness/tests/gamv_directional.rs`). The test runs `variogram::gamv`, with
+the legacy reading of `harness::gamv::legacy`, on all 17 gamv fixtures.
+
+- **Agreement:**
+  - every pair count matches exactly, through D-017's relations (self-pairs,
+    doubled orderings) and F-026's;
+  - every value matches within D-015's 1e-12. The worst scaled errors are
+    9.6e-17 to 8.5e-16 for γ, means and variances, and up to 2.8e-15 × xlag
+    for distances;
+  - `legacy_log_defect`: GSLIB writes `Infinity` and `NaN` (the l. 758
+    defect, D-047), and gslib-rs fails, as P2 requires.
+- **Confirmed by reference runs:**
+  - F-020: edge pairs are decided by π and operation order. With exact π,
+    `directions_grid`, `dips_3d` and even the book's `cluster_book` change
+    pair counts;
+  - F-023: `atol = 90` at `azm = 90` drops north–south pairs;
+  - F-025 and F-026;
+  - D-043: omnidirectional cross measures average both orderings;
+  - the D-044 45° substitution;
+  - the closed pair test and `(tmin, tmax]` indicator test of F-021.
+- **Not exercised:** F-024 (mixed-sign tail/head order) needs a wide dip
+  tolerance; no case has one yet.
+- **Mutation checks:**
+  - exact π and the corrected types 6/7 in the adapter: 131 mismatches, in
+    `directions_grid`, `dips_3d`, `cluster_book` and `legacy_log_defect`;
+  - no second omnidirectional ordering in the kernel: 575 mismatches.
+- **Recipe:** `oracle-case`'s gamv parameters were extended (directions,
+  several variables, variograms, `isill`). All 38 earlier fixtures
+  regenerated byte for byte; only their provenance records changed.
+- **Size:** 24–36 KB per new fixture.

@@ -1,0 +1,23 @@
+schema = 1
+program = "gamv"
+description = "Dipping directions on the 3-D grid (x and y spacing 2, z spacing 1): dip +26.565 and -26.565 to the east select (2, 0, 1) and (2, 0, -1) pairs (dip sign, z up), a vertical direction, a narrow bandwidth, and atol = dtol = 0, which GSLIB turns into 45 degrees (D-044); semivariogram and madogram."
+inputs = ["grid_3d.dat"]
+
+[parameters]
+data = "grid_3d.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+nlag = 6
+lag_spacing = 1.0
+lag_tolerance = 0.5
+directions = [
+    [90.0, 10.0, 1.0e21, 26.565, 10.0, 1.0e21],
+    [90.0, 10.0, 1.0e21, -26.565, 10.0, 1.0e21],
+    [0.0, 90.0, 1.0e21, -90.0, 10.0, 1.0e21],
+    [0.0, 30.0, 0.5, 0.0, 30.0, 0.5],
+    [45.0, 0.0, 1.0e21, 0.0, 0.0, 1.0e21],
+]
+variograms = [
+    { tail = 1, head = 1, kind = 1 },
+    { tail = 1, head = 1, kind = 8 },
+]

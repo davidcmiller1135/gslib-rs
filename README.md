@@ -12,8 +12,10 @@ Library: variograms, kriging, and stochastic simulation. It is a library
 
 - **Variogram models:** nugget plus nested spherical, exponential, Gaussian,
   power and hole-effect structures, with GSLIB three-angle anisotropy.
-- **Experimental variograms:** omnidirectional, reporting pairs and mean
-  distance per lag.
+- **Experimental variograms (GSLIB `gamv`):** GSLIB's lag classes and
+  direction windows, all of gamv's variogram types, cross variograms and
+  indicator variograms. `--gslib-compat` selects GSLIB's legacy behaviour
+  (`docs/spec/gamv.md`).
 - **Kriging:** simple, ordinary (also with the power model) and simple
   cokriging, each returning the kriging variance.
 - **Search neighbourhood:** GSLIB's anisotropic search ellipsoid with `ndmin`/`ndmax` and octants (the CLI exposes the nearest `--max-samples` within `--radius`).
@@ -32,10 +34,13 @@ Library: variograms, kriging, and stochastic simulation. It is a library
 ```sh
 cargo build --release
 
-# Experimental variogram (columns default to x y z value = 1 2 3 4),
-# plotted against a model: nugget 0.1 + spherical (sill 0.9, range 40).
-gslib-rs variogram -i data.dat -d 100 -n 10 -o vario.csv --plot vario.png \
-    --nugget 0.1 --structure sph:0.9:40
+# Experimental variograms (columns default to x y z value = 1 2 3 4):
+# 10 lags of 10, north and east (azimuth, tolerance, bandwidth, dip,
+# tolerance, bandwidth), plotted against a model: nugget 0.1 + spherical
+# (sill 0.9, range 40). Add --format gamv for GSLIB's output layout.
+gslib-rs variogram -i data.dat --nlag 10 --xlag 10 \
+    --dir 0,22.5,25,0,22.5,25 --dir 90,22.5,25,0,22.5,25 \
+    -o vario.csv --plot vario.png --nugget 0.1 --structure sph:0.9:40
 
 # Ordinary kriging at target locations, with an anisotropic model
 # (major range 40 at azimuth 45, minor 20, vertical 5).
@@ -81,7 +86,7 @@ GSLIB's node-table limits.
 stream (ChaCha8, stream i), so it is the same whatever `--nsim` is and in
 whatever order realizations run.
 
-**Threads.** `krige`, `variogram`, `sgsim` and `sisim` use every core (the
+**Threads.** `krige`, `sgsim` and `sisim` use every core (the
 simulations run realizations in parallel); set `RAYON_NUM_THREADS` to limit
 them.
 Results are identical for any number of threads.

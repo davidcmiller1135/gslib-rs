@@ -88,6 +88,7 @@ impl Suite {
 
 const XYZV: &[&str] = &["X", "Y", "Z", "V"];
 const XYZVW: &[&str] = &["X", "Y", "Z", "V", "W"];
+const XYZVWC: &[&str] = &["X", "Y", "Z", "V", "W", "C"];
 
 fn uniform(rng: &mut ChaCha8Rng, lo: f64, hi: f64) -> f64 {
     rng.random::<f64>().mul_add(hi - lo, lo)
@@ -295,8 +296,60 @@ fn gaussian_on_grid(rng: &mut ChaCha8Rng) -> Rows {
     Rows { names: XYZV, rows }
 }
 
+/// A 7 x 7 regular 2-D grid (spacing 1, origin 0, x fastest) with a normal
+/// V and a positive lognormal W.
+fn grid_2d(rng: &mut ChaCha8Rng) -> Rows {
+    let rows = (0..7_u32)
+        .flat_map(|j| (0..7_u32).map(move |i| (i, j)))
+        .map(|(i, j)| {
+            let v = rounded(normal(rng), 6);
+            let w = rounded((0.5 * normal(rng)).exp(), 6);
+            vec![f64::from(i), f64::from(j), 0.0, v, w]
+        })
+        .collect();
+    Rows { names: XYZVW, rows }
+}
+
+/// 60 scattered 3-D points with three variables: V (ties on a 0.5 grid,
+/// zeros, a value of exactly 10, and -999 codes), W (positive, with zeros and
+/// -999 codes) and C (category codes 0, 1, 2, with -999 codes). The codes sit
+/// in different rows per variable, so most rows keep some variable.
+fn multivariate(rng: &mut ChaCha8Rng) -> Rows {
+    let rows = (0..60_u32)
+        .map(|k| {
+            let east = rounded(uniform(rng, 0.0, 30.0), 4);
+            let north = rounded(uniform(rng, 0.0, 30.0), 4);
+            let elev = rounded(uniform(rng, 0.0, 6.0), 4);
+            let half_steps = (2.0 * normal(rng).mul_add(2.0, 4.0)).round();
+            let mut val = (0.5 * half_steps).max(0.0);
+            let mut pos = rounded((0.7 * normal(rng)).exp(), 6);
+            let mut cat = f64::from(rng.random_range(0..3_u32));
+            if k % 7 == 3 {
+                val = -999.0;
+            }
+            if k == 20 {
+                val = 10.0;
+            }
+            if k % 9 == 4 {
+                pos = 0.0;
+            }
+            if k % 11 == 5 {
+                pos = -999.0;
+            }
+            if k % 13 == 6 {
+                cat = -999.0;
+            }
+            vec![east, north, elev, val, pos, cat]
+        })
+        .collect();
+    Rows {
+        names: XYZVWC,
+        rows,
+    }
+}
+
 /// Every suite, in the order the README lists them.
-pub(crate) const SUITES: [Suite; 13] = [
+pub(crate) const SUITES: [Suite; 15] = [
     Suite {
         name: "smooth",
         seed: 1,
@@ -388,6 +441,20 @@ pub(crate) const SUITES: [Suite; 13] = [
         build: gaussian_on_grid,
         format: Format::Gslib,
     },
+    Suite {
+        name: "grid_2d",
+        seed: 14,
+        note: "A 7 x 7 regular 2-D grid (spacing 1) with a normal V and a positive lognormal W: gamv directions at 0, 45 and 90 degrees, where many pairs sit exactly on a tolerance edge (F-020, F-023), and every variogram type.",
+        build: grid_2d,
+        format: Format::Gslib,
+    },
+    Suite {
+        name: "multivariate",
+        seed: 15,
+        note: "60 scattered 3-D points with V (ties on a 0.5 grid, zeros, one value of 10, -999 codes), W (positive, zeros, -999 codes) and C (categories 0-2, -999 codes): multi-variable gamv, indicators with ties at the cut-off, and gamv's trimming intervals.",
+        build: multivariate,
+        format: Format::Gslib,
+    },
 ];
 
 #[cfg(test)]
@@ -407,6 +474,39 @@ mod tests {
         v.sort_by(f64::total_cmp);
         v.dedup();
         v.len()
+    }
+
+    #[test]
+    fn grid_2d_is_a_unit_grid() {
+        let rows = suite("grid_2d").rows().rows;
+        assert_eq!(rows.len(), 49);
+        assert!(
+            rows.iter()
+                .all(|r| r[0].fract() == 0.0 && r[1].fract() == 0.0)
+        );
+        assert!(column("grid_2d", 4).iter().all(|&w| w > 0.0), "W positive");
+    }
+
+    #[test]
+    fn multivariate_has_its_features() {
+        let v = column("multivariate", 3);
+        let w = column("multivariate", 4);
+        let c = column("multivariate", 5);
+        assert!(
+            v.contains(&-999.0) && w.contains(&-999.0) && c.contains(&-999.0),
+            "codes"
+        );
+        assert!(v.contains(&0.0) && w.contains(&0.0), "zeros");
+        assert!(v.contains(&10.0), "a value of exactly 10");
+        assert!(
+            v.iter().all(|x| (2.0 * x).fract() == 0.0),
+            "V on a 0.5 grid"
+        );
+        assert!(
+            c.iter().all(|x| [0.0, 1.0, 2.0, -999.0].contains(x)),
+            "categories"
+        );
+        assert!(distinct(&v) < 20, "V has ties");
     }
 
     #[test]

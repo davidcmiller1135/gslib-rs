@@ -44,6 +44,11 @@ mod cli {
         PathBuf::from(format!("{}_{i}.gslib", prefix.display()))
     }
 
+    /// The three data are 10, 10 and 14.1 apart. With xlag = 10 and the
+    /// default tolerance of 5, all three pairs fall in lag 3 (k = 1). The
+    /// default direction is omnidirectional: each pair is reported once and
+    /// both orderings are summed (D-017, D-043). Squared differences 1, 4, 1:
+    /// γ = 6 / (2·3) = 1.
     #[test]
     fn variogram_writes_csv_and_plot_with_model() {
         let dir = TempDir::new().unwrap();
@@ -51,10 +56,10 @@ mod cli {
         let csv = dir.path().join("v.csv");
         let png = dir.path().join("v.png");
         bin()
-            .args(["variogram", "--max-dist", "20", "--n-lags", "2"])
+            .args(["variogram", "--nlag", "2", "--xlag", "10"])
             .arg("--input")
             .arg(&data)
-            .arg("--out-csv")
+            .arg("--out")
             .arg(&csv)
             .arg("--plot")
             .arg(&png)
@@ -63,12 +68,22 @@ mod cli {
             .success();
         let text = std::fs::read_to_string(&csv).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "lag,mean_distance,pairs,gamma");
-        assert_eq!(lines.len(), 3, "{text}");
-        // Two pairs at distance 10 and one at 14.1: all in the second lag.
-        assert_eq!(lines[1], "5,,0,", "first lag is empty, not zero");
-        assert!(lines[2].starts_with("15,"), "{}", lines[2]);
-        assert!(lines[2].contains(",3,"), "three pairs: {}", lines[2]);
+        assert_eq!(
+            lines[0],
+            "variogram,direction,lag,nominal_distance,mean_distance,gamma,pairs,\
+             orderings,tail_mean,head_mean,tail_variance,head_variance,skipped"
+        );
+        assert_eq!(lines.len(), 5, "nlag + 2 lags: {text}");
+        assert_eq!(
+            lines[1], "1,1,1,0,,,0,0,,,,,0",
+            "empty lag: empty cells, not zeros"
+        );
+        assert!(lines[3].starts_with("1,1,3,10,"), "{}", lines[3]);
+        assert!(
+            lines[3].contains(",1,3,6,"),
+            "γ = 1 from 3 pairs, 6 orderings: {}",
+            lines[3]
+        );
         assert!(std::fs::metadata(&png).unwrap().len() > 0, "plot is empty");
     }
 
@@ -77,12 +92,157 @@ mod cli {
         let dir = TempDir::new().unwrap();
         let data = write(&dir, "d.dat", DATA);
         bin()
-            .args(["variogram", "-d", "20", "-n", "1", "-i"])
+            .args(["variogram", "--nlag", "1", "--xlag", "10", "-i"])
             .arg(&data)
             .assert()
             .success()
-            .stdout(contains("lag,mean_distance,pairs,gamma"))
-            .stdout(contains(",3,"));
+            .stdout(contains("variogram,direction,lag"))
+            .stdout(contains(",3,6,"));
+    }
+
+    /// GSLIB's layout under --gslib-compat: titles, nlag + 2 rows per
+    /// direction, GSLIB's np, and full precision. There are no self-pairs
+    /// (D-017), so lag 1 is empty, unlike GSLIB's.
+    #[test]
+    fn variogram_gamv_layout_with_directions() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let out = dir.path().join("gamv.out");
+        bin()
+            .args([
+                "variogram",
+                "--nlag",
+                "2",
+                "--xlag",
+                "10",
+                "--format",
+                "gamv",
+            ])
+            .args([
+                "--dir",
+                "0,22.5,1e21,0,22.5,1e21",
+                "--dir",
+                "90,22.5,1e21,0,22.5,1e21",
+            ])
+            .arg("--gslib-compat")
+            .arg("-i")
+            .arg(&data)
+            .arg("-o")
+            .arg(&out)
+            .assert()
+            .success();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2 * (1 + 4), "{text}");
+        assert_eq!(
+            lines[0],
+            "Semivariogram           tail:V            head:V             direction  1"
+        );
+        assert_eq!(
+            lines[5].trim_end(),
+            lines[0].replace("direction  1", "direction  2")
+        );
+        let row = |l: &str| l.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+        // Lag 1: no coincident data, and no self-pairs.
+        assert_eq!(row(lines[1])[3], "0", "{}", lines[1]);
+        // North: values 1 → 3, γ = 4/2 = 2; east: 1 → 2, γ = 1/2.
+        assert_eq!(row(lines[3])[1..4], ["10", "2", "1"], "{}", lines[3]);
+        assert_eq!(row(lines[8])[1..4], ["10", "0.5", "1"], "{}", lines[8]);
+        // Empty lag: GSLIB writes zeros.
+        assert_eq!(row(lines[4])[1..4], ["0", "0", "0"], "{}", lines[4]);
+    }
+
+    #[test]
+    fn variogram_angle_tolerance_zero_needs_compat() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let args = [
+            "variogram",
+            "--nlag",
+            "1",
+            "--xlag",
+            "10",
+            "--dir",
+            "0,0,1e21,0,10,1e21",
+        ];
+        bin()
+            .args(args)
+            .arg("-i")
+            .arg(&data)
+            .assert()
+            .failure()
+            .stderr(contains("azimuth tolerance"));
+        bin()
+            .args(args)
+            .arg("--gslib-compat")
+            .arg("-i")
+            .arg(&data)
+            .assert()
+            .success();
+    }
+
+    #[test]
+    fn variogram_standardize_rejects_non_semivariograms() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        bin()
+            .args([
+                "variogram",
+                "--nlag",
+                "1",
+                "--xlag",
+                "10",
+                "--vario",
+                "4,4,3",
+            ])
+            .arg("--standardize")
+            .arg("-i")
+            .arg(&data)
+            .assert()
+            .failure()
+            .stderr(contains("--standardize"));
+    }
+
+    /// Indicator at cut-off 2 of [1, 2, 3]: [1, 1, 0] by default (v ≤ c),
+    /// [0, 1, 1] under --gslib-compat (gamv's v ≥ c, D-024). The datum at the
+    /// cut-off changes side, so the east pair (v = 1 and 2) has γ = 0 by
+    /// default and 0.5 under compat.
+    #[test]
+    fn variogram_indicator_conventions() {
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let run = |compat: bool| {
+            let mut cmd = bin();
+            cmd.args([
+                "variogram",
+                "--nlag",
+                "2",
+                "--xlag",
+                "10",
+                "--vario",
+                "4,4,9,2",
+            ])
+            .args(["--dir", "90,22.5,1e21,0,22.5,1e21"])
+            .arg("-i")
+            .arg(&data);
+            if compat {
+                cmd.arg("--gslib-compat");
+            }
+            let out = cmd.assert().success().get_output().stdout.clone();
+            String::from_utf8(out).unwrap()
+        };
+        let default = run(false);
+        let east_default = default.lines().nth(3).unwrap();
+        assert!(
+            east_default.starts_with("1,1,3,10,10,0,1,1,1,1,"),
+            "{east_default}"
+        );
+        let compat = run(true);
+        let east_compat = compat.lines().nth(3).unwrap();
+        assert!(
+            east_compat.starts_with("1,1,3,10,10,0.5,1,1,0,1,"),
+            "{east_compat}"
+        );
     }
 
     #[test]
@@ -217,7 +377,7 @@ mod cli {
         let dir = TempDir::new().unwrap();
         let data = write(&dir, "d.dat", "coords\n3\nX\nY\nZ\n0 0 0\n");
         bin()
-            .args(["variogram", "-d", "1", "-n", "1", "-i"])
+            .args(["variogram", "--nlag", "1", "--xlag", "1", "-i"])
             .arg(&data)
             .assert()
             .failure()
@@ -244,9 +404,9 @@ mod cli {
                 "variogram",
                 "-i",
                 "x",
-                "-d",
+                "--nlag",
                 "1",
-                "-n",
+                "--xlag",
                 "1",
                 "--structure",
                 "sph:1",
@@ -261,7 +421,7 @@ mod cli {
         let dir = TempDir::new().unwrap();
         let data = write(&dir, "d.dat", "t\n4\nX\nY\nZ\nV\n0 0 0 1\n0 0 oops 1\n");
         bin()
-            .args(["variogram", "-d", "1", "-n", "1", "-i"])
+            .args(["variogram", "--nlag", "1", "--xlag", "1", "-i"])
             .arg(&data)
             .assert()
             .failure()
@@ -284,7 +444,7 @@ mod cli {
 
     fn variogram_csv(data: &Path, extra: &[&str]) -> assert_cmd::assert::Assert {
         bin()
-            .args(["variogram", "-d", "40", "-n", "4", "-i"])
+            .args(["variogram", "--nlag", "4", "--xlag", "10", "-i"])
             .arg(data)
             .args(extra)
             .assert()
@@ -304,7 +464,7 @@ mod cli {
         let out = dir.path().join("out");
         let file = |flag: &str, p: &Path| [flag.to_owned(), p.display().to_string()];
         let commands: Vec<Vec<String>> = vec![
-            ["variogram", "-d", "40", "-n", "4"]
+            ["variogram", "--nlag", "4", "--xlag", "10"]
                 .map(str::to_owned)
                 .to_vec(),
             [

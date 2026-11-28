@@ -76,14 +76,27 @@ fn zero_based(values: impl IntoIterator<Item = f64>) -> Range<f64> {
     0.0..(if top > 0.0 { top * 1.05 } else { 1.0 })
 }
 
-/// An experimental variogram (points) with an optional model curve.
+/// One labelled series of experimental variogram points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariogramSeries {
+    /// Legend label (e.g. the direction).
+    pub label: String,
+    /// `(lag distance, γ)` points; lags without a value should be omitted.
+    pub points: Vec<(f64, f64)>,
+}
+
+/// Experimental variograms (one series per direction or variogram) with an
+/// optional model curve.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariogramPlot {
-    /// `(lag distance, γ)` points; lags without pairs should be omitted.
-    pub experimental: Vec<(f64, f64)>,
+    /// The experimental series.
+    pub experimental: Vec<VariogramSeries>,
     /// Optional `(distance, γ)` model curve.
     pub model: Option<Vec<(f64, f64)>>,
 }
+
+/// Series colours, cycled.
+const SERIES_COLOURS: [RGBColor; 6] = [RED, GREEN, MAGENTA, CYAN, BLACK, YELLOW];
 
 impl Figure for VariogramPlot {
     fn size(&self) -> (u32, u32) {
@@ -92,7 +105,12 @@ impl Figure for VariogramPlot {
 
     fn draw<DB: DrawingBackend>(&self, root: &DrawingArea<DB, Shift>) -> DrawResult<DB> {
         let model = self.model.as_deref().unwrap_or_default();
-        let all = || self.experimental.iter().chain(model);
+        let all = || {
+            self.experimental
+                .iter()
+                .flat_map(|s| &s.points)
+                .chain(model)
+        };
         root.fill(&WHITE)?;
         let mut chart = ChartBuilder::on(root)
             .caption("Variogram", ("sans-serif", 24))
@@ -108,14 +126,18 @@ impl Figure for VariogramPlot {
             .x_desc("distance")
             .y_desc("γ")
             .draw()?;
-        chart
-            .draw_series(
-                self.experimental
-                    .iter()
-                    .map(|&p| Circle::new(p, 4, RED.filled())),
-            )?
-            .label("experimental")
-            .legend(|(x, y)| Circle::new((x + 10, y), 4, RED.filled()));
+        for (series, colour) in self.experimental.iter().zip(SERIES_COLOURS.iter().cycle()) {
+            let colour = *colour;
+            chart
+                .draw_series(
+                    series
+                        .points
+                        .iter()
+                        .map(move |&p| Circle::new(p, 4, colour.filled())),
+                )?
+                .label(series.label.clone())
+                .legend(move |(x, y)| Circle::new((x + 10, y), 4, colour.filled()));
+        }
         if !model.is_empty() {
             chart
                 .draw_series(LineSeries::new(model.iter().copied(), BLUE.stroke_width(2)))?
@@ -358,7 +380,16 @@ mod tests {
     fn renders_png_and_svg() {
         let dir = tempfile::tempdir().unwrap();
         let fig = VariogramPlot {
-            experimental: vec![(1.0, 0.5), (2.0, 0.9)],
+            experimental: vec![
+                VariogramSeries {
+                    label: "direction 1".into(),
+                    points: vec![(1.0, 0.5), (2.0, 0.9)],
+                },
+                VariogramSeries {
+                    label: "direction 2".into(),
+                    points: vec![(1.0, 0.7)],
+                },
+            ],
             model: Some(vec![(0.0, 0.0), (2.0, 1.0)]),
         };
         for name in ["v.png", "v.svg"] {

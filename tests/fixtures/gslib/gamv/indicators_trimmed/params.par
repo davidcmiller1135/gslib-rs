@@ -1,0 +1,21 @@
+                  Parameters for GAMV
+                  *******************
+
+START OF PARAMETERS:
+multivariate.dat   \file with data
+1 2 3   \columns for X, Y, Z coordinates
+3 4 5 6   \number of variables, column numbers
+0.0 10.0   \trimming limits
+gamv.out   \file for variogram output
+5   \number of lags
+4   \lag separation distance
+2   \lag tolerance
+2   \number of directions
+0.0 90.0 1e21 0.0 90.0 1e21   \azm,atol,bandh,dip,dtol,bandv
+0.0 30.0 1e21 0.0 90.0 1e21   \azm,atol,bandh,dip,dtol,bandv
+1   \standardize sills? (0=no, 1=yes)
+4   \number of variograms
+1 1 1   \tail var., head var., variogram type
+1 1 9 4.0   \tail var., head var., variogram type
+3 3 10 1.0   \tail var., head var., variogram type
+2 2 1   \tail var., head var., variogram type

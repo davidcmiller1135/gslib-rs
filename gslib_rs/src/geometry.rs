@@ -52,6 +52,24 @@ fn norm(v: [f64; 3]) -> f64 {
     dot(v, v).sqrt()
 }
 
+/// Which value of π angle conversions use (D-046, `docs/spec/decisions.md`).
+///
+/// GSLIB writes π as a short literal, and each routine has its own:
+/// `3.14159265` in `gamv` and `cova3`, `3.141592654` in `setrot`. The
+/// relative difference from π is about 1e-9, which is enough to move a pair
+/// that lies exactly on a direction-tolerance edge to the other side (F-020).
+/// So exact parity needs the literal, and each routine resolves
+/// [`PiConstant::Gslib`] to its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PiConstant {
+    /// [`std::f64::consts::PI`]. The default.
+    #[default]
+    Exact,
+    /// The literal of the GSLIB routine being reproduced (legacy policy, for
+    /// exact parity with the reference build).
+    Gslib,
+}
+
 /// Orientation of an anisotropy ellipsoid, in degrees, using GSLIB's
 /// conventions (verified against `SETROT.FOR` and `GAMV.FOR`; F-004).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
