@@ -1398,3 +1398,22 @@ From `vendor/gslib-2.0/src/`:
     runs sequentially (D-037 applies to the default mode).
   - `gauinv` moves from the harness into the library as the documented
     approximation that the exact mode uses.
+
+## D-039: A Seed type; ACORN's seed range enforced, even seeds allowed
+- Status: decided
+- Topic: rng.md
+- Question: How are seeds typed and validated?
+- Options: a seed type with ACORN's range enforced and even seeds allowed;
+  also reject even ACORN seeds; reduce out-of-range seeds into range.
+- Decision:
+  - **`Seed(u64)`** is the domain type for a master seed, and owns the
+    stream rule: `Seed::realization(k)` gives D-037's ChaCha8 stream.
+  - **ACORN requires `0 < seed < 2³⁰`** and fails otherwise
+    (`Error::InvalidInput`). GSLIB reads the seed into a 32-bit integer and
+    never checks it, so it would silently misbehave.
+  - **Even ACORN seeds are accepted.** GSLIB accepts them, and exact parity
+    must reproduce GSLIB parameter files.
+- Rationale: explicit failure over silent coercion (`AGENTS.md`, precedence
+  2), without refusing inputs GSLIB runs correctly.
+- Consequences: the CLI validates the ACORN range only in the exact mode;
+  the default mode accepts any `u64`.

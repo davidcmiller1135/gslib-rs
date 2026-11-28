@@ -33,7 +33,7 @@ reproducible from their seed and independent of thread count.
 - **`sgsim`'s path** comes from `SliceRandom::shuffle`, and its deviates
   from `rand_distr::StandardNormal`.
 
-## Decisions so far
+## Decisions
 
 - **Generator** (D-036): ChaCha8 by default; ACORN as an opt-in
   `rand::RngCore` for exact-stream parity.
@@ -41,13 +41,76 @@ reproducible from their seed and independent of thread count.
   with `set_stream(k)`, so it depends only on (master, k).
 - **Exact-stream parity** (D-038): now, ACORN with GSLIB's seeding and
   warm-up, GSLIB's random path, and `gauinv` deviates, each checked bit for
-  bit (an unconditional `sgsim` fixture where nothing is ever found). Later,
-  after harness step 8, an `sgsim` exact mode: same path and draws, values
-  within a solver tolerance.
+  bit. Later, after harness step 8, an `sgsim` exact mode: same path and
+  draws, values within a solver tolerance.
+- **Seeds** (D-039): a `Seed(u64)` type owning the stream rule; ACORN
+  requires `0 < seed < 2³⁰`; even seeds are accepted.
 
-## Open questions (in dependency order)
+## Open questions
 
-1. ~~The default generator~~ (D-036).
-2. ~~Realization streams~~ (D-037).
-3. ~~Exact stream parity~~ (D-038).
-4. Seed type and validation.
+None.
+
+## Requirements
+
+- **RN1 Realization streams** (D-037, D-039). `Seed(s).realization(k)`
+  equals `ChaCha8Rng::seed_from_u64(s)` with `set_stream(k)`. A regression
+  test pins its first outputs for two seeds and streams. The values are
+  recorded from the implementation, as a guard against dependency changes,
+  not as an oracle.
+- **RN2 Order independence** (D-037, P5). For `sgsim` and `sisim`,
+  realization k run alone equals realization k of a batch of n > k, bit for
+  bit.
+- **RN3 ACORN** (D-036, D-039, F-016).
+  - `Acorn::new(seed)` holds `[seed, 0, …, 0]` (13 words) and fails unless
+    `0 < seed < 2³⁰`. `Acorn::gslib(seed)` also discards 1 000 draws.
+  - `next_acorni()` performs `ixv(i+1) = (ixv(i+1) + ixv(i)) mod 2³⁰` for
+    i = 1..12 and returns `ixv(13) / 2³⁰`.
+  - **Oracle:** GSLIB `nscore` seeds `Acorn::gslib(69069)` and perturbs
+    each *kept* datum, in data order, to `v + acorni·10⁻⁶` (`NSCORE.FOR`
+    lines 142–179; trimmed rows draw nothing). Its table is those values
+    sorted. The harness checks them exactly, on every `nscore` fixture,
+    including `ties`, whose random tie order this reproduces.
+- **RN4 ACORN as an `RngCore`.** `next_u32` is the 30-bit word shifted to
+  the top of 32 bits; `next_u64` combines two draws. The exact mode uses
+  `next_acorni` only; the trait exists so ACORN can drive any gslib-rs
+  algorithm.
+- **RN5 GSLIB's random path.** One `next_acorni` per node in grid order,
+  then nodes visited in increasing order of their draws (ties, which need
+  equal 30-bit words, by node index), with `imult` added at the
+  multiple-grid nodes when that option is used.
+- **RN6 `gauinv`.** GSLIB's approximation moves into the library as a
+  documented function, within 1.501e-8 of the exact inverse (D-016). The
+  harness uses the library's version.
+- **RN7 The oracle for RN3, RN5 and RN6 together.** An unconditional `sgsim`
+  fixture with a search radius below the node spacing and 2 realizations:
+  - GSLIB's values equal `gauinv` of the draws along the predicted path,
+    exactly;
+  - the second realization continues the same stream.
+- **RN8 CLI seeds.** `--seed` becomes a `Seed`. In the default mode any
+  `u64` is accepted; the exact mode (when built) validates ACORN's range.
+
+## Implementation plan
+
+Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
+
+1. **Seeds and realization streams.**
+   - Work: `gslib_rs::random` with `Seed` and `Seed::realization(k)`; the
+     CLI seeds each realization from it.
+   - Tests: RN1, RN2, RN8.
+   - Unblocks parallel realizations (parallelism step 4).
+2. **ACORN.**
+   - Work: `random::Acorn` (`new`, `gslib`, `next_acorni`, `RngCore`).
+   - Tests: RN3 (unit tests from the recurrence, and the `nscore`
+     despiking oracle in the harness), RN4.
+3. **`gauinv` in the library.**
+   - Work: move the harness port into `transform`, documented as GSLIB's
+     approximation.
+   - Tests: RN6 (the existing bound tests move with it).
+4. **GSLIB's random path and the unconditional `sgsim` fixture.**
+   - Work: `random::gslib_path`, and a minimal `sgsim` case generator in
+     `oracle-case`, the start of harness step 8.
+   - Tests: RN5, RN7.
+5. **Later: the `sgsim` exact mode** (D-038), after harness step 8.
+
+Nothing is blocked on `parity-verify`: F-016 is read from the source, and
+RN3 and RN7 check it against GSLIB runs.
