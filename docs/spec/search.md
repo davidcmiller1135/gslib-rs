@@ -179,7 +179,13 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
        hypothesis.
    - Depends on 1 and on point kriging matching `kt3d` (harness step 7);
      benefits from 2.
-4. **Node search.**
+4. **Node search** (done: `search::NodeSearch` with `TableExtent`;
+   `sgsim` and `sisim` take a `Grid` and `Searches { data, nodes }`; a node
+   holding a datum takes its value and is not an informed node, as in
+   GSLIB; the CLI takes `--grid-x/-y/-z N:MIN:SIZ` and `--max-nodes`. Tests:
+   S8 and S9 against independent definitions (property test, also at
+   1 000 cases), `srchnd` octants, S10 with GSLIB's 71/71/1; 9 of 9 planted
+   bugs caught).
    - Work: the offset table (S8, S10) and node selection (S9) for a
      `Grid`; `sgsim` moves from a node list to a `Grid`.
    - Tests: S8–S10.

@@ -45,7 +45,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
 | `kb2d` / `kt3d` | 🟡 | `kriging::{simple_kriging, ordinary_kriging}` (with weights: `*_solution`), `krige` CLI; point SK/OK parity fixtures with search and weights (F-015) | **block kriging** (discretisation); **kriging with a trend** (KT, `ktsol`) and **external drift**; cross-validation / jackknife; gridded output; locally varying mean |
-| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block (`docs/spec/search.md` steps 1–2) | `sgsim`'s node search and two-part search; CLI flags for anisotropy, octants and `ndmin`; parity fixtures through `kt3d` |
+| search (`setsupr`/`srchsupr`) | 🟡 | `search::{DataSearch, SearchEllipsoid, BruteForce, SuperBlock, NodeSearch}`: anisotropic ellipsoid, `ndmin`/`ndmax`, octants, an exact super-block, `sgsim`'s node search; `kt3d` parity fixtures (F-015) (`docs/spec/search.md` steps 1–4) | two-part search (data moved to nodes); CLI flags for anisotropy, octants and `ndmin` |
 | `cokb3d` | 🟡 | `kriging::simple_cokriging` | ordinary cokriging (both constraint forms); collocated cokriging; check the linear model of coregionalisation |
 | `ik3d` | ⬜ | (single threshold via `sisim`'s kriging) | multiple thresholds; median IK; **order-relation corrections**; categorical variables; soft data |
 
@@ -53,7 +53,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
-| `sgsim` | 🟡 | `simulation::sgsim`, `sgsim` CLI | **covariance lookup table** and spiral search of simulated nodes; separate data / previously simulated search counts; multiple-grid refinement; assigning data to grid nodes; locally varying mean; collocated cokriging with a secondary variable |
+| `sgsim` | 🟡 | `simulation::sgsim` on a `Grid` with separate data and node searches (`search::NodeSearch`, GSLIB's covariance-ranked "spiral" table), `sgsim` CLI | **covariance lookup table** for the kriging matrices; multiple-grid refinement; assigning data to grid nodes; locally varying mean; collocated cokriging with a secondary variable |
 | `sisim` | 🟡 | `simulation::sisim` | multiple thresholds; categorical; soft data; Markov–Bayes; order-relation corrections |
 | `sasim` | 🟡 | `simulation::sasim` | conditional-distribution objective; **incremental objective updates** (currently a full recompute per perturbation); variogram objectives in several directions; CLI subcommand |
 | `anneal` | ⬜ | | post-processing of an existing realization by annealing |
@@ -106,6 +106,8 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Super-block selection misses data (kt3d) | `picksup` tests 27 lattice points between blocks, so a thin rotated search ellipsoid can reach into a skipped block: data inside the ellipsoid are ignored (F-012, confirmed in F-015) | exact block bound, never skips an in-range datum (D-025) | none (a defect) |
 | Ordinary kriging with one datum (kt3d) | UNEST, since OK's unbiasedness counts as a drift term (`1 ≤ na ≤ mdt = 1`, F-014) | estimates with weight 1, variance 2γ(h) | possible legacy policy |
 | Simple kriging with one datum (kt3d) | returns the datum and the OK variance 2(C(0) − C(h)) (F-014) | true SK: m + (C(h)/C(0))(v − m), variance C(0) − C(h)²/C(0) | none (a defect) |
+| Node-search extent (`sgsim`) | the covariance table is capped at ±35 nodes in x and y and 0 in z (`MAXCTX = MAXCTY = 71`, `MAXCTZ = 1`), so nodes inside the radius beyond the cap, and every node above or below, are silently ignored (F-013) | the whole search ellipsoid (S10) | `TableExtent::Gslib { max }` |
+| Node-search order (`sgsim`) | unstable sort by `−C(h) + 10⁻¹⁰·q(h)` (F-012) | decreasing `C(h)`, then `q(h)`, then offset index: a total order (D-026) | GSLIB's order: deferred to the exact-stream parity spec |
 | Order of equidistant search data | unstable quicksort over super-block order (F-012) | by distance, then input row (D-024) | GSLIB's order: deferred to the exact-stream parity spec |
 | Trimming interval | mostly `tmin ≤ v < tmax`; closed tests in `gamv` pair rejection (inert with one variable, F-011), `sasim`, `ik3d`, `sisim_gs`, `bivplt` (F-009) | `tmin ≤ v < tmax` everywhere (D-019) | per program, only if a fixture shows it matters |
 | NaN / ±Inf in data | NaN kept as data; ±Inf trimmed by ±1e21 limits (F-010) | explicit policies, default error, applied before trimming (D-020, M9) | `Missing` / `ClampToRange` are opt-in policies |

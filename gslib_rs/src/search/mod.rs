@@ -33,6 +33,10 @@
 
 use std::num::NonZeroUsize;
 
+pub mod nodes;
+
+pub use nodes::{NodeSearch, TableExtent};
+
 use crate::error::{Error, Result};
 use crate::geometry::{Angles, Anisotropy, Point3, Ranges};
 use crate::num::{floor_index, to_f64};

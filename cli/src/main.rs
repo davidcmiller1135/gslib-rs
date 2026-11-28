@@ -20,8 +20,8 @@ use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::parallel::{experimental_variogram, try_map};
 use gslib_rs::plot::{VariogramPlot, save};
 use gslib_rs::sample::{Sample, mean_value};
-use gslib_rs::search::{DataSearch, SearchEllipsoid, SuperBlock};
-use gslib_rs::simulation::{sgsim, sisim};
+use gslib_rs::search::{DataSearch, NodeSearch, SearchEllipsoid, SuperBlock, TableExtent};
+use gslib_rs::simulation::{Axis, Grid, Searches, sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::LagClasses;
 use missing::MissingArgs;
@@ -141,6 +141,61 @@ impl SearchArgs {
     }
 }
 
+/// The simulation grid, as GSLIB's `nx xmn xsiz` lines.
+#[derive(Debug, Clone, Copy, Args)]
+struct GridArgs {
+    /// X axis `NX:XMN:XSIZ`: NX nodes, the first at XMN, XSIZ apart.
+    #[arg(long = "grid-x", value_parser = spec::parse_axis, allow_hyphen_values = true)]
+    grid_x: Axis,
+    /// Y axis `NY:YMN:YSIZ` (default: one node at 0).
+    #[arg(long = "grid-y", value_parser = spec::parse_axis, allow_hyphen_values = true, default_value = "1:0:1")]
+    grid_y: Axis,
+    /// Z axis `NZ:ZMN:ZSIZ` (default: one node at 0).
+    #[arg(long = "grid-z", value_parser = spec::parse_axis, allow_hyphen_values = true, default_value = "1:0:1")]
+    grid_z: Axis,
+    /// Most previously simulated nodes per estimate (GSLIB `nodmax`).
+    #[arg(long, default_value_t = 12)]
+    max_nodes: usize,
+}
+
+impl GridArgs {
+    fn grid(self) -> AppResult<Grid> {
+        Ok(Grid::new(self.grid_x, self.grid_y, self.grid_z)?)
+    }
+
+    /// The node search over `grid`, with the data search's ellipsoid.
+    fn node_search(
+        self,
+        grid: &Grid,
+        search: &DataSearch,
+        model: &CovarianceModel,
+    ) -> AppResult<NodeSearch> {
+        Ok(NodeSearch::new(
+            grid,
+            search.ellipsoid(),
+            model,
+            self.max_nodes,
+            None,
+            TableExtent::Ellipsoid,
+        )?)
+    }
+}
+
+/// The grid's node coordinates as a GSLIB table with columns X, Y, Z.
+fn grid_table(title: &str, grid: &Grid) -> AppResult<GslibData> {
+    let values = (0..grid.len())
+        .flat_map(|i| {
+            let p = grid.node(i);
+            [p.x, p.y, p.z]
+        })
+        .collect();
+    Ok(GslibData::new(
+        title,
+        vec!["X".to_owned(), "Y".to_owned(), "Z".to_owned()],
+        values,
+    )?)
+}
+
 /// Realizations and seeding.
 #[derive(Debug, Clone, Args)]
 struct RealizationArgs {
@@ -225,9 +280,8 @@ struct SgsimArgs {
     columns: Columns,
     #[command(flatten)]
     missing: MissingArgs,
-    /// Simulation node file (x, y, z in columns 1-3).
-    #[arg(long)]
-    sim: PathBuf,
+    #[command(flatten)]
+    grid: GridArgs,
     /// Normal-score variogram model (its sill should be 1).
     #[command(flatten)]
     model: ModelArgs,
@@ -252,9 +306,8 @@ struct SisimArgs {
     columns: Columns,
     #[command(flatten)]
     missing: MissingArgs,
-    /// Simulation node file (x, y, z in columns 1-3).
-    #[arg(long)]
-    sim: PathBuf,
+    #[command(flatten)]
+    grid: GridArgs,
     /// Threshold: indicator is 1 where the value is below it.
     #[arg(long)]
     threshold: f64,
@@ -267,7 +320,7 @@ struct SisimArgs {
     realizations: RealizationArgs,
 }
 
-/// The x, y, z columns of a target/node file are always 1-3.
+/// The x, y, z columns of a target file are always 1-3.
 const TARGET_COLUMNS: Columns = Columns {
     x: 1,
     y: 2,
@@ -420,8 +473,7 @@ fn realization_path(prefix: &Path, i: usize) -> PathBuf {
 fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
     let data_file = read_gslib(&args.data)?;
     let samples = read_samples(&args.data, args.columns, &args.missing)?;
-    let nodes_file = read_gslib(&args.sim)?;
-    let nodes = TARGET_COLUMNS.points(&nodes_file)?;
+    let grid = args.grid.grid()?;
     let model = args.model.covariance()?;
     if (model.sill() - 1.0).abs() > 1e-6 {
         writeln!(
@@ -432,6 +484,12 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
         .ok();
     }
     let search = args.search.search()?;
+    let nodes = args.grid.node_search(&grid, &search, &model)?;
+    let searches = Searches {
+        data: &search,
+        nodes: &nodes,
+    };
+    let table = grid_table(data_file.title(), &grid)?;
 
     // Normal-score transform; simulate with mean 0; back-transform.
     let values: Vec<f64> = samples.iter().map(Sample::value).collect();
@@ -446,11 +504,9 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
 
     let mut rng = ChaCha8Rng::seed_from_u64(args.realizations.seed);
     for i in 0..args.realizations.nsim {
-        let simulated = sgsim(&scored, &nodes, &model, 0.0, search, &mut rng)?;
+        let simulated = sgsim(&scored, &grid, &model, 0.0, searches, &mut rng)?;
         let original_units: Vec<f64> = simulated.iter().map(|&y| back.apply(y)).collect();
-        let out = nodes_file
-            .with_column(format!("sim_{i}"), &original_units)?
-            .with_title(data_file.title());
+        let out = table.with_column(format!("sim_{i}"), &original_units)?;
         write_gslib(realization_path(&args.realizations.out_prefix, i), &out)?;
     }
     Ok(())
@@ -459,21 +515,24 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
 fn simulate_indicator(args: &SisimArgs) -> AppResult {
     let data_file = read_gslib(&args.data)?;
     let samples = read_samples(&args.data, args.columns, &args.missing)?;
-    let nodes_file = read_gslib(&args.sim)?;
-    let nodes = TARGET_COLUMNS.points(&nodes_file)?;
+    let grid = args.grid.grid()?;
     let model = args.model.covariance()?;
     let search = args.search.search()?;
+    let nodes = args.grid.node_search(&grid, &search, &model)?;
+    let searches = Searches {
+        data: &search,
+        nodes: &nodes,
+    };
+    let table = grid_table(data_file.title(), &grid)?;
 
     let mut rng = ChaCha8Rng::seed_from_u64(args.realizations.seed);
     for i in 0..args.realizations.nsim {
-        let below = sisim(&samples, &nodes, args.threshold, &model, search, &mut rng)?;
+        let below = sisim(&samples, &grid, args.threshold, &model, searches, &mut rng)?;
         let values: Vec<f64> = below
             .into_iter()
             .map(|b| if b { 1.0 } else { 0.0 })
             .collect();
-        let out = nodes_file
-            .with_column(format!("ind_{i}"), &values)?
-            .with_title(data_file.title());
+        let out = table.with_column(format!("ind_{i}"), &values)?;
         write_gslib(realization_path(&args.realizations.out_prefix, i), &out)?;
     }
     Ok(())

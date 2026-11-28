@@ -91,6 +91,46 @@ impl Grid {
             .collect()
     }
 
+    /// Nodes along x, y and z.
+    #[must_use]
+    pub const fn counts(&self) -> [usize; 3] {
+        [self.x.count, self.y.count, self.z.count]
+    }
+
+    /// Node spacing along x, y and z.
+    #[must_use]
+    pub const fn spacing(&self) -> [f64; 3] {
+        [self.x.spacing, self.y.spacing, self.z.spacing]
+    }
+
+    /// The `(ix, iy, iz)` (0-based) of node `index`, x fastest.
+    #[must_use]
+    pub const fn cell_of(&self, index: usize) -> [usize; 3] {
+        let (nx, ny) = (self.x.count, self.y.count);
+        [
+            index % nx,
+            index.div_euclid(nx) % ny,
+            index.div_euclid(nx * ny),
+        ]
+    }
+
+    /// The index of node `(ix, iy, iz)`, or `None` outside the grid.
+    #[must_use]
+    pub const fn index_of(&self, [ix, iy, iz]: [usize; 3]) -> Option<usize> {
+        if ix < self.x.count && iy < self.y.count && iz < self.z.count {
+            Some(ix + self.x.count * (iy + self.y.count * iz))
+        } else {
+            None
+        }
+    }
+
+    /// The coordinates of node `index` (x fastest).
+    #[must_use]
+    pub fn node(&self, index: usize) -> Point3 {
+        let [ix, iy, iz] = self.cell_of(index);
+        Point3::new(self.x.center(ix), self.y.center(iy), self.z.center(iz))
+    }
+
     /// Index of the node whose cell contains `p`, or `None` outside the grid.
     #[must_use]
     pub fn node_index(&self, p: Point3) -> Option<usize> {

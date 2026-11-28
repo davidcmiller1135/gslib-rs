@@ -139,18 +139,12 @@ mod cli {
 
     fn sgsim(dir: &TempDir, prefix: &str, seed: &str) -> PathBuf {
         let data = write(dir, "d.dat", DATA);
-        let nodes = write(
-            dir,
-            "n.dat",
-            "nodes\n4\nX\nY\nZ\nKeep\n0 0 0 7\n5 0 0 7\n5 5 0 7\n20 20 0 7\n",
-        );
         let prefix = dir.path().join(prefix);
         bin()
             .args(["sgsim", "--nsim", "2", "--seed", seed])
+            .args(["--grid-x", "3:0:5", "--grid-y", "3:0:5"])
             .arg("--data")
             .arg(&data)
-            .arg("--sim")
-            .arg(&nodes)
             .arg("--out-prefix")
             .arg(&prefix)
             .args(MODEL)
@@ -165,9 +159,14 @@ mod cli {
         let prefix = sgsim(&dir, "sgs", "1");
         for i in 0..2 {
             let (names, rows) = read(&realization(&prefix, i));
-            assert_eq!(names, ["X", "Y", "Z", "Keep", &format!("sim_{i}")]);
-            assert_eq!(column(&rows, 3), vec![7.0; 4], "existing column preserved");
-            let sim = column(&rows, 4);
+            assert_eq!(names, ["X", "Y", "Z", &format!("sim_{i}")]);
+            assert_eq!(rows.len(), 9, "3 x 3 nodes");
+            assert_eq!(
+                (column(&rows, 0)[1], column(&rows, 1)[3]),
+                (5.0, 5.0),
+                "x fastest, spacing 5"
+            );
+            let sim = column(&rows, 3);
             assert!((sim[0] - 1.0).abs() < 1e-9, "datum reproduced: {sim:?}");
             assert!(
                 sim.iter().all(|&v| (1.0..=3.0).contains(&v)),
@@ -187,14 +186,12 @@ mod cli {
     fn sisim(threshold: &str) -> Vec<f64> {
         let dir = TempDir::new().unwrap();
         let data = write(&dir, "d.dat", DATA);
-        let nodes = write(&dir, "n.dat", "nodes\n3\nX\nY\nZ\n1 1 0\n4 4 0\n50 50 0\n");
         let prefix = dir.path().join("sis");
         bin()
             .args(["sisim", "--threshold", threshold])
+            .args(["--grid-x", "3:1:3"])
             .arg("--data")
             .arg(&data)
-            .arg("--sim")
-            .arg(&nodes)
             .arg("--out-prefix")
             .arg(&prefix)
             .args(MODEL)
@@ -232,10 +229,8 @@ mod cli {
         let dir = TempDir::new().unwrap();
         let data = write(&dir, "d.dat", DATA);
         bin()
-            .args(["sgsim", "--out-prefix", "unused"])
+            .args(["sgsim", "--out-prefix", "unused", "--grid-x", "2:0:1"])
             .arg("--data")
-            .arg(&data)
-            .arg("--sim")
             .arg(&data)
             .assert()
             .failure()
@@ -320,13 +315,13 @@ mod cli {
             .concat(),
             [
                 ["sgsim".to_owned()].as_slice(),
-                &file("--sim", &nodes),
+                &["--grid-x".to_owned(), "3:1:1".to_owned()],
                 &file("--out-prefix", &out),
             ]
             .concat(),
             [
                 ["sisim".to_owned(), "--threshold".to_owned(), "1".to_owned()].as_slice(),
-                &file("--sim", &nodes),
+                &["--grid-x".to_owned(), "3:1:1".to_owned()],
                 &file("--out-prefix", &out),
             ]
             .concat(),

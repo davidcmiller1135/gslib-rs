@@ -44,18 +44,21 @@ gslib-rs krige --data data.dat --targets grid.dat --out est.dat \
 
 # Sequential Gaussian simulation. Data are normal-scored and results
 # back-transformed, so give the model in normal-score units (sill 1).
-gslib-rs sgsim --data data.dat --sim grid.dat --nsim 10 --seed 69069 \
+gslib-rs sgsim --data data.dat --grid-x 50:0.5:1 --grid-y 50:0.5:1 \
+    --nsim 10 --seed 69069 --max-nodes 12 \
     --out-prefix sgs --structure exp:1:50
 
 # Sequential indicator simulation at one threshold.
-gslib-rs sisim --data data.dat --sim grid.dat --threshold 2.5 \
+gslib-rs sisim --data data.dat --grid-x 50:0.5:1 --grid-y 50:0.5:1 --threshold 2.5 \
     --out-prefix sis --structure sph:0.25:30
 ```
 
 `--structure` takes `TYPE:CC:A_HMAX[:A_HMIN:A_VERT[:AZIMUTH:DIP:PLUNGE]]`,
 where `TYPE` is `sph`, `exp`, `gau` or `hol`, or takes `pow:CC:OMEGA`. These
-are the same numbers as a GSLIB parameter file. Run `gslib-rs <command> --help`
-for every option.
+are the same numbers as a GSLIB parameter file. `--grid-x`, `--grid-y` and
+`--grid-z` take `N:MIN:SIZ`, GSLIB's `nx xmn xsiz` (y and z default to one
+node); simulation output lists X, Y, Z and one value column per node, x
+fastest. Run `gslib-rs <command> --help` for every option.
 
 **Missing values.** No trimming is applied unless you ask for it, but a
 command refuses data whose value column contains −999, −99 or a value of
