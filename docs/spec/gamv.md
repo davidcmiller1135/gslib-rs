@@ -176,7 +176,7 @@ None.
 Each step is one reviewable PR (here: commits on PR #5), and every check in
 `AGENTS.md` passes.
 
-1. **Direction windows.** `variogram/directional.rs`: `Direction`,
+1. **Direction windows.** (**Done.**) `variogram/directional.rs`: `Direction`,
    `DirectionWindow`, `PairOrder`, `geometry::PiConstant`.
    - Tests:
      - W1 errors;
@@ -197,15 +197,19 @@ Each step is one reviewable PR (here: commits on PR #5), and every check in
      - permuting rows leaves an omnidirectional cross measure unchanged
        (D-043);
      - property: missing values never pair.
+   - **Status: done.** `GamvLag::orderings` reports GSLIB's `np` (the
+     orderings summed), next to `pairs`, which counts each pair once.
 3. **All measures.** Types 2 to 8 and −3, standardisation, D-047, `None`
    for undefined values, errors on non-finite results.
    - Tests: hand-computed cases for each measure; the
      cross-semivariogram of a variable with itself; −3; standardisation
      errors; skip counts; both types 6/7 policies; correlogram bounds.
+   - **Status: done.**
 4. **Indicators.** `indicator_continuous` and `indicator_categorical`.
    - Tests: the cut-off value; the categorical sill; negative codes;
      non-integer errors; missing values; a standardised indicator
      semivariogram.
+   - **Status: done.**
 5. **CLI.** D-052 on PR #4's CLI, keeping its missing-value flags.
    - Tests: the CSV layout; the gamv layout under `--gslib-compat`;
      `atol = 0` with and without compat; the `--standardize` error;

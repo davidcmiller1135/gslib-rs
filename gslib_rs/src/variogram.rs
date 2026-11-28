@@ -30,8 +30,15 @@ use crate::sample::Sample;
 use crate::search::Blocks;
 
 mod directional;
+mod gamv;
+mod indicator;
 
 pub use directional::{Direction, DirectionWindow, PairOrder, Separation};
+pub use gamv::{
+    Data, DirectionalVariogram, GamvLag, GamvPolicies, GamvRequest, OmniRelativeLog, VariogramKind,
+    VariogramSpec, gamv,
+};
+pub use indicator::{Indicator, indicator_categorical, indicator_continuous};
 
 /// A way of assigning pair separations to lag classes.
 pub trait LagScheme {
@@ -237,7 +244,7 @@ pub fn experimental_variogram<L: LagScheme + ?Sized>(samples: &[Sample], lags: &
 pub(crate) const ROWS_PER_BLOCK: usize = 256;
 
 /// Relative widening of the pruning radius (D-032).
-const PRUNE_MARGIN: f64 = 1e-9;
+pub(crate) const PRUNE_MARGIN: f64 = 1e-9;
 
 /// Running sums for one lag class.
 #[derive(Debug, Clone, Copy, Default)]
