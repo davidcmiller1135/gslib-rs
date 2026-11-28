@@ -744,6 +744,7 @@ name = "harness"
 version = "0.1.0"
 dependencies = [
  "gslib_rs",
+ "nalgebra",
  "oracle-case",
 ]
 

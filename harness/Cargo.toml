@@ -16,4 +16,5 @@ workspace = true
 
 [dependencies]
 gslib_rs = { path = "../gslib_rs", version = "0.1.0", default-features = false }
+nalgebra = "0.35"
 oracle-case = { path = "../oracle-case", version = "0.1.0" }

@@ -132,8 +132,18 @@ pub fn evaluation_point(
 /// # Errors
 /// A message if gslib-rs rejects the model.
 pub fn model(params: &Params) -> Result<VariogramModel, String> {
-    let structures = params
-        .structures
+    model_from(params.nugget, &params.structures)
+}
+
+/// The gslib-rs model for a GSLIB nugget and structures (see [`model`]).
+///
+/// # Errors
+/// A message if gslib-rs rejects the model.
+pub fn model_from(
+    nugget: f64,
+    structures: &[oracle_case::vmodel::Structure],
+) -> Result<VariogramModel, String> {
+    let structures = structures
         .iter()
         .map(|s| {
             let [a1, a2, a3] = s.angles;
@@ -189,7 +199,7 @@ pub fn model(params: &Params) -> Result<VariogramModel, String> {
             Structure::new(kind, s.cc, angles, ranges).map_err(|e| e.to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    VariogramModel::new(params.nugget, structures).map_err(|e| e.to_string())
+    VariogramModel::new(nugget, structures).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@
 pub mod compare;
 pub mod gamv;
 pub mod gslib_math;
+pub mod kt3d;
 pub mod vmodel;
 
 use std::path::PathBuf;
