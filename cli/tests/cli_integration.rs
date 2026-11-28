@@ -658,4 +658,33 @@ mod cli {
         .collect::<Vec<f64>>();
         assert_eq!(batch, alone);
     }
+
+    #[test]
+    fn realization_files_do_not_depend_on_thread_count() {
+        // P1, P5 end to end: the same batch with 1 and 8 threads writes
+        // byte-identical files.
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let run = |threads: &str, name: &str| -> Vec<String> {
+            let prefix = dir.path().join(name);
+            bin()
+                .env("RAYON_NUM_THREADS", threads)
+                .args(["sgsim", "--nsim", "6", "--seed", "11"])
+                .args(["--grid-x", "6:0:2", "--grid-y", "6:0:2"])
+                .args(MODEL)
+                .arg("--data")
+                .arg(&data)
+                .arg("--out-prefix")
+                .arg(&prefix)
+                .assert()
+                .success();
+            (0..6)
+                .map(|i| std::fs::read_to_string(realization(&prefix, i)).unwrap())
+                .collect()
+        };
+        let one = run("1", "one");
+        let eight = run("8", "eight");
+        assert_eq!(one, eight);
+        assert_ne!(one[0], one[1], "realizations differ from each other");
+    }
 }

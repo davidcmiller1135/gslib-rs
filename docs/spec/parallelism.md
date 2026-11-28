@@ -147,7 +147,14 @@ feature unification (D-030).
    - Tests: P1; P3 (sequential equals parallel bit for bit, and agreement
      with the old single loop within 1e-12).
    - Depends on 2.
-4. **Parallel realizations** (`sgsim`, `sisim`).
+4. **Parallel realizations** (`sgsim`, `sisim`; done: `parallel::realizations`
+   maps realization indices, each on `Seed::realization(k)`, and returns
+   results or the first error in realization order; the CLI simulates and
+   writes each realization inside it. Tests: P1 and P5 in the library (12
+   `sgsim` realizations, bit-identical with 1, 2 and 8 threads, realization
+   7 alone equal to the batch's, error order) and end to end (files
+   identical with `RAYON_NUM_THREADS` 1 and 8). A planted bug collapsing
+   the streams was caught).
    - Tests: P1, P5.
    - Unblocked: realization streams exist (`random::Seed`, RNG spec step 1).
 5. **GPU evaluation** (optional, D-033).

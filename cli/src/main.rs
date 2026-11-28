@@ -19,9 +19,9 @@ use gslib_rs::geometry::{Angles, Point3, Ranges};
 use gslib_rs::io::{Extraction, GslibData, MissingCode, PresentSamples, read_gslib, write_gslib};
 use gslib_rs::kriging::{Estimate, ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
-use gslib_rs::parallel::{experimental_variogram, try_map};
+use gslib_rs::parallel::{experimental_variogram, realizations, try_map};
 use gslib_rs::plot::{VariogramPlot, save};
-use gslib_rs::random::{Seed, Stream};
+use gslib_rs::random::Seed;
 use gslib_rs::sample::{Sample, mean_value};
 use gslib_rs::search::{
     DataSearch, NodeSearch, OnSharedNode, OnTooFewData, OutsideGrid, SearchEllipsoid, SuperBlock,
@@ -319,10 +319,9 @@ fn grid_table(title: &str, grid: &Grid) -> AppResult<GslibData> {
 }
 
 impl RealizationArgs {
-    /// The stream for realization `i`: stream `i` of the master seed, so a
-    /// realization does not depend on the others (D-037).
-    fn stream(&self, i: usize) -> AppResult<Stream> {
-        Ok(Seed(self.seed).realization(u64::try_from(i)?))
+    /// The master seed: realization `i` uses its stream `i` (D-037).
+    const fn seed(&self) -> Seed {
+        Seed(self.seed)
     }
 }
 
@@ -656,13 +655,19 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
     let tail = |bound: Option<f64>| bound.map_or(Tail::Clamp, Tail::Linear);
     let back = BackTransform::new(ns.table, tail(args.zmin), tail(args.zmax))?;
 
-    for i in 0..args.realizations.nsim {
-        let mut rng = args.realizations.stream(i)?;
-        let simulated = sgsim(&scored, &grid, &model, 0.0, searches, &mut rng)?;
-        let original_units: Vec<f64> = simulated.iter().map(|&y| back.apply(y)).collect();
-        let out = table.with_column(format!("sim_{i}"), &original_units)?;
-        write_gslib(realization_path(&args.realizations.out_prefix, i), &out)?;
-    }
+    // Realizations run in parallel, each on its own stream (D-037), and
+    // each writes its own file.
+    let prefix = &args.realizations.out_prefix;
+    realizations(
+        args.realizations.seed(),
+        args.realizations.nsim,
+        |i, rng| {
+            let simulated = sgsim(&scored, &grid, &model, 0.0, searches, rng)?;
+            let original_units: Vec<f64> = simulated.iter().map(|&y| back.apply(y)).collect();
+            let out = table.with_column(format!("sim_{i}"), &original_units)?;
+            write_gslib(realization_path(prefix, i), &out)
+        },
+    )?;
     Ok(())
 }
 
@@ -681,15 +686,19 @@ fn simulate_indicator(args: &SisimArgs) -> AppResult {
     };
     let table = grid_table(data_file.title(), &grid)?;
 
-    for i in 0..args.realizations.nsim {
-        let mut rng = args.realizations.stream(i)?;
-        let below = sisim(&samples, &grid, args.threshold, &model, searches, &mut rng)?;
-        let values: Vec<f64> = below
-            .into_iter()
-            .map(|b| if b { 1.0 } else { 0.0 })
-            .collect();
-        let out = table.with_column(format!("ind_{i}"), &values)?;
-        write_gslib(realization_path(&args.realizations.out_prefix, i), &out)?;
-    }
+    let prefix = &args.realizations.out_prefix;
+    realizations(
+        args.realizations.seed(),
+        args.realizations.nsim,
+        |i, rng| {
+            let below = sisim(&samples, &grid, args.threshold, &model, searches, rng)?;
+            let values: Vec<f64> = below
+                .into_iter()
+                .map(|b| if b { 1.0 } else { 0.0 })
+                .collect();
+            let out = table.with_column(format!("ind_{i}"), &values)?;
+            write_gslib(realization_path(prefix, i), &out)
+        },
+    )?;
     Ok(())
 }

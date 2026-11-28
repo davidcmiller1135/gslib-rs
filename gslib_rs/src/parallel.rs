@@ -13,7 +13,10 @@
 //!   keeps the outcome independent of scheduling.
 //!
 //! Entry points: [`try_map`] for any per-item function (e.g. kriging at many
-//! targets) and [`experimental_variogram`] for the pair loop's blocks.
+//! targets), [`experimental_variogram`] for the pair loop's blocks, and
+//! [`realizations`] for stochastic simulation, where realization `k` draws
+//! from its own stream `Seed::realization(k)` (D-037), so the result does not
+//! depend on scheduling.
 //!
 //! The threads come from `rayon`'s global pool (sized by `RAYON_NUM_THREADS`
 //! or the number of cores) unless the call runs inside [`with_threads`].
@@ -54,6 +57,7 @@ use rayon::prelude::*;
 
 use crate::error::{Error, Result};
 use crate::geometry::Point3;
+use crate::random::{Seed, Stream};
 use crate::sample::Sample;
 use crate::variogram::{Lag, LagScheme, LagSums, PairPlan};
 
@@ -94,6 +98,32 @@ where
     plan.finish(sums)
 }
 
+/// Run `count` realizations in parallel, each on its own stream.
+///
+/// Calls `simulate(k, stream)` with `stream = seed.realization(k)` for `k`
+/// in `0..count`. Results come back in realization order, or the first
+/// error in realization order (P2, P5).
+///
+/// Each realization depends only on `(seed, k)`, so the results are the
+/// same for any thread count, and realization `k` equals a run of
+/// realization `k` alone.
+///
+/// # Errors
+/// The error of the first realization, in order, for which `simulate`
+/// fails.
+pub fn realizations<T, F>(seed: Seed, count: usize, simulate: F) -> Result<Vec<T>>
+where
+    T: Send,
+    F: Fn(usize, &mut Stream) -> Result<T> + Sync,
+{
+    let indices: Vec<usize> = (0..count).collect();
+    try_map(&indices, |&k| {
+        let stream = u64::try_from(k)
+            .map_err(|_| Error::invalid("realization", format!("index {k} exceeds u64")))?;
+        simulate(k, &mut seed.realization(stream))
+    })
+}
+
 /// Run `work` in a dedicated pool of exactly `threads` threads.
 ///
 /// Parallel maps inside `work` use that many threads. Results do not depend
@@ -119,7 +149,7 @@ mod tests {
     use super::*;
     use crate::geometry::Point3;
     use crate::kriging::{Estimate, ordinary_kriging};
-    use crate::model::{Kind, Structure, VariogramModel};
+    use crate::model::{CovarianceModel, Kind, Structure, VariogramModel};
     use crate::sample::Sample;
     use crate::search::{DataSearch, SearchEllipsoid, SuperBlock};
 
@@ -320,6 +350,88 @@ mod tests {
                 assert_eq!(parallel, sequential);
                 println!("{lags:?}: sequential {one:?}, {threads} threads {took:?}");
             }
+        }
+    }
+
+    #[test]
+    fn realizations_are_independent_of_threads_and_batch() {
+        // P1, P5: 12 sgsim realizations on a 15 x 15 grid with a datum.
+        use crate::search::{DataSearch, NodeSearch, SearchEllipsoid, TableExtent};
+        use crate::simulation::{Axis, DataConditioning, Grid, Searches, sgsim};
+        let axis = |count| Axis {
+            count,
+            first_center: 0.5,
+            spacing: 1.0,
+        };
+        let grid = Grid::new(axis(15), axis(15), axis(1)).unwrap();
+        let (_, variogram) = field();
+        let model = CovarianceModel::try_from(variogram).unwrap();
+        let data = [Sample::new(Point3::new(7.5, 7.5, 0.0), 1.0).unwrap()];
+        let search = DataSearch::new(SearchEllipsoid::isotropic(10.0).unwrap(), 0, 8).unwrap();
+        let nodes = NodeSearch::new(
+            &grid,
+            search.ellipsoid(),
+            &model,
+            12,
+            None,
+            TableExtent::Ellipsoid,
+        )
+        .unwrap();
+        let searches = Searches {
+            data: DataConditioning::Search(&search),
+            nodes: &nodes,
+        };
+        let simulate = |_: usize, rng: &mut Stream| sgsim(&data, &grid, &model, 0.0, searches, rng);
+        let bits = |runs: &[Vec<f64>]| -> Vec<Vec<u64>> {
+            runs.iter()
+                .map(|r| r.iter().map(|v| v.to_bits()).collect())
+                .collect()
+        };
+        let seed = Seed(69069);
+        let sequential: Vec<Vec<f64>> = (0..12_u64)
+            .map(|k| {
+                sgsim(
+                    &data,
+                    &grid,
+                    &model,
+                    0.0,
+                    searches,
+                    &mut seed.realization(k),
+                )
+                .unwrap()
+            })
+            .collect();
+        for threads in pools() {
+            let parallel = with_threads(threads, || realizations(seed, 12, simulate))
+                .unwrap()
+                .unwrap();
+            assert_eq!(bits(&parallel), bits(&sequential), "{threads} threads");
+        }
+        // Realization 7 alone.
+        let alone = sgsim(
+            &data,
+            &grid,
+            &model,
+            0.0,
+            searches,
+            &mut seed.realization(7),
+        )
+        .unwrap();
+        assert_eq!(bits(&[alone]), bits(&sequential[7..8]));
+        // The first failing realization, in order, is reported.
+        let failing = |k: usize, _: &mut Stream| -> Result<usize> {
+            if k == 3 || k == 9 {
+                Err(Error::invalid(
+                    "realization",
+                    format!("realization {k} failed"),
+                ))
+            } else {
+                Ok(k)
+            }
+        };
+        match realizations(seed, 12, failing) {
+            Err(Error::InvalidInput { reason, .. }) => assert_eq!(reason, "realization 3 failed"),
+            other => panic!("expected realization 3's error, got {other:?}"),
         }
     }
 }

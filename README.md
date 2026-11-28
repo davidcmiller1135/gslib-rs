@@ -81,8 +81,9 @@ GSLIB's node-table limits.
 stream (ChaCha8, stream i), so it is the same whatever `--nsim` is and in
 whatever order realizations run.
 
-**Threads.** `krige` and `variogram` use every core; set `RAYON_NUM_THREADS`
-to limit them.
+**Threads.** `krige`, `variogram`, `sgsim` and `sisim` use every core (the
+simulations run realizations in parallel); set `RAYON_NUM_THREADS` to limit
+them.
 Results are identical for any number of threads.
 
 ## Library
