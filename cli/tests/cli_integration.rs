@@ -585,4 +585,77 @@ mod cli {
             9
         );
     }
+
+    #[test]
+    fn a_realization_does_not_depend_on_the_others() {
+        // RN2 (D-037): realization 2 of a CLI batch equals realization 2
+        // computed alone from Seed(7).realization(2), with the CLI's default
+        // searches (24 data, unlimited radius, 12 nodes). With one stream
+        // shared through the batch, it would depend on realizations 0 and 1.
+        use gslib_rs::geometry::Point3;
+        use gslib_rs::model::{CovarianceModel, Kind, Structure, VariogramModel};
+        use gslib_rs::random::Seed;
+        use gslib_rs::sample::Sample;
+        use gslib_rs::search::{DataSearch, NodeSearch, SearchEllipsoid, TableExtent};
+        use gslib_rs::simulation::{Axis, DataConditioning, Grid, Searches, sisim};
+
+        let dir = TempDir::new().unwrap();
+        let data = write(&dir, "d.dat", DATA);
+        let prefix = dir.path().join("sis");
+        bin()
+            .args(["sisim", "--threshold", "2.5", "--nsim", "3", "--seed", "7"])
+            .args(["--grid-x", "4:0:5", "--grid-y", "3:0:5"])
+            .args(MODEL)
+            .arg("--data")
+            .arg(&data)
+            .arg("--out-prefix")
+            .arg(&prefix)
+            .assert()
+            .success();
+        let batch = column(&read(&realization(&prefix, 2)).1, 3);
+
+        let samples = [(0.0, 0.0, 1.0), (10.0, 0.0, 2.0), (0.0, 10.0, 3.0)]
+            .map(|(x, y, v)| Sample::new(Point3::new(x, y, 0.0), v).unwrap());
+        let axis = |count, spacing| Axis {
+            count,
+            first_center: 0.0,
+            spacing,
+        };
+        let grid = Grid::new(axis(4, 5.0), axis(3, 5.0), axis(1, 1.0)).unwrap();
+        let model = CovarianceModel::try_from(
+            VariogramModel::new(
+                0.0,
+                vec![Structure::isotropic(Kind::Exponential, 1.0, 30.0).unwrap()],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let search = DataSearch::new(SearchEllipsoid::unlimited(), 0, 24).unwrap();
+        let nodes = NodeSearch::new(
+            &grid,
+            &SearchEllipsoid::unlimited(),
+            &model,
+            12,
+            None,
+            TableExtent::Ellipsoid,
+        )
+        .unwrap();
+        let searches = Searches {
+            data: DataConditioning::Search(&search),
+            nodes: &nodes,
+        };
+        let alone = sisim(
+            &samples,
+            &grid,
+            2.5,
+            &model,
+            searches,
+            &mut Seed(7).realization(2),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|b| if b { 1.0 } else { 0.0 })
+        .collect::<Vec<f64>>();
+        assert_eq!(batch, alone);
+    }
 }

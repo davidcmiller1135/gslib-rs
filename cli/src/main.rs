@@ -21,6 +21,7 @@ use gslib_rs::kriging::{Estimate, ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
 use gslib_rs::parallel::{experimental_variogram, try_map};
 use gslib_rs::plot::{VariogramPlot, save};
+use gslib_rs::random::{Seed, Stream};
 use gslib_rs::sample::{Sample, mean_value};
 use gslib_rs::search::{
     DataSearch, NodeSearch, OnSharedNode, OnTooFewData, OutsideGrid, SearchEllipsoid, SuperBlock,
@@ -30,8 +31,6 @@ use gslib_rs::simulation::{Axis, DataConditioning, Grid, Searches, sgsim, sisim}
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
 use gslib_rs::variogram::LagClasses;
 use missing::MissingArgs;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
 
 type AppResult<T = ()> = Result<T, Box<dyn Error>>;
 
@@ -319,13 +318,22 @@ fn grid_table(title: &str, grid: &Grid) -> AppResult<GslibData> {
     )?)
 }
 
+impl RealizationArgs {
+    /// The stream for realization `i`: stream `i` of the master seed, so a
+    /// realization does not depend on the others (D-037).
+    fn stream(&self, i: usize) -> AppResult<Stream> {
+        Ok(Seed(self.seed).realization(u64::try_from(i)?))
+    }
+}
+
 /// Realizations and seeding.
 #[derive(Debug, Clone, Args)]
 struct RealizationArgs {
     /// Number of realizations.
     #[arg(long, default_value_t = 1)]
     nsim: usize,
-    /// Random seed (69069, GSLIB's example seed in SGSIM.PAR and SISIM.PAR; F-016).
+    /// Master seed: realization i uses stream i of it (D-037). 69069 is GSLIB's
+    /// example seed in SGSIM.PAR and SISIM.PAR (F-016).
     #[arg(long, default_value_t = 69069)]
     seed: u64,
     /// Output prefix: writes `PREFIX_0.gslib`, `PREFIX_1.gslib`, ...
@@ -648,8 +656,8 @@ fn simulate_gaussian(args: &SgsimArgs) -> AppResult {
     let tail = |bound: Option<f64>| bound.map_or(Tail::Clamp, Tail::Linear);
     let back = BackTransform::new(ns.table, tail(args.zmin), tail(args.zmax))?;
 
-    let mut rng = ChaCha8Rng::seed_from_u64(args.realizations.seed);
     for i in 0..args.realizations.nsim {
+        let mut rng = args.realizations.stream(i)?;
         let simulated = sgsim(&scored, &grid, &model, 0.0, searches, &mut rng)?;
         let original_units: Vec<f64> = simulated.iter().map(|&y| back.apply(y)).collect();
         let out = table.with_column(format!("sim_{i}"), &original_units)?;
@@ -673,8 +681,8 @@ fn simulate_indicator(args: &SisimArgs) -> AppResult {
     };
     let table = grid_table(data_file.title(), &grid)?;
 
-    let mut rng = ChaCha8Rng::seed_from_u64(args.realizations.seed);
     for i in 0..args.realizations.nsim {
+        let mut rng = args.realizations.stream(i)?;
         let below = sisim(&samples, &grid, args.threshold, &model, searches, &mut rng)?;
         let values: Vec<f64> = below
             .into_iter()

@@ -149,7 +149,7 @@ feature unification (D-030).
    - Depends on 2.
 4. **Parallel realizations** (`sgsim`, `sisim`).
    - Tests: P1, P5.
-   - Blocked on the RNG spec (PLAN C5).
+   - Unblocked: realization streams exist (`random::Seed`, RNG spec step 1).
 5. **GPU evaluation** (optional, D-033).
    - Work: a benchmark of the pair loop only.
    - Tests: P6.

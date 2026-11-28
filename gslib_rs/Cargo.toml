@@ -18,6 +18,9 @@ nalgebra = "0.35"
 plotters = { version = "0.3.7", optional = true }
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_distr = { version = "0.6", default-features = false, features = ["std"] }
+# The default generator and its per-realization streams (docs/spec/rng.md,
+# D-036, D-037).
+rand_chacha = "0.10"
 libm = "0.2"
 statrs = "0.19"
 thiserror = "2"
@@ -35,5 +38,4 @@ parallel = ["dep:rayon"]
 [dev-dependencies]
 approx = "0.5"
 proptest = "1.12"
-rand_chacha = "0.10"
 tempfile = "3.27"

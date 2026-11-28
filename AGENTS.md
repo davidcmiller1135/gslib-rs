@@ -138,7 +138,7 @@ Further rules:
 ## Repo Specifics
 
 - **Core (pure):** `gslib_rs/src/{geometry, model, variogram, kriging, search,
-  transform, simulation, linalg, num, sample}.rs`.
+  transform, simulation, linalg, num, random, sample}.rs`.
 - **Boundaries:**
   - `gslib_rs/src/io.rs`: pure `parse_gslib`/`format_gslib`, plus file wrappers;
   - `gslib_rs/src/plot.rs`: behind the `plot` feature;

@@ -77,6 +77,10 @@ target has too few data, as `kt3d` does. `sgsim`/`sisim` take
 `--on-shared-node` and `--outside-grid`) and `--node-table gslib` for
 GSLIB's node-table limits.
 
+**Seeds.** `--seed` is a master seed: realization i draws from its own
+stream (ChaCha8, stream i), so it is the same whatever `--nsim` is and in
+whatever order realizations run.
+
 **Threads.** `krige` and `variogram` use every core; set `RAYON_NUM_THREADS`
 to limit them.
 Results are identical for any number of threads.

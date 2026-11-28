@@ -93,7 +93,12 @@ None.
 
 Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
 
-1. **Seeds and realization streams.**
+1. **Seeds and realization streams** (done: `gslib_rs::random::{Seed,
+   Stream}`; the CLI gives realization i stream i of `--seed`, and no longer
+   depends on `rand` or `rand_chacha` directly. Tests: RN1 (the definition,
+   plus pinned outputs for two seeds and streams), RN2 (a CLI batch's
+   realization 2 equals the library's realization 2 alone). Planted bugs:
+   a shared stream and an ignored stream number were both caught).
    - Work: `gslib_rs::random` with `Seed` and `Seed::realization(k)`; the
      CLI seeds each realization from it.
    - Tests: RN1, RN2, RN8.

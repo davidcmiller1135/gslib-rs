@@ -300,8 +300,6 @@ dependencies = [
  "csv",
  "gslib_rs",
  "predicates",
- "rand",
- "rand_chacha",
  "tempfile",
 ]
 
