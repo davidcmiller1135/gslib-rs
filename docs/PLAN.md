@@ -5,28 +5,36 @@ work and names the specs that still have to be written before code. Rules:
 `AGENTS.md`. What is ported and what diverges: `docs/ROADMAP.md`. Decisions
 and findings: `docs/spec/decisions.md`.
 
-## 1. State at handoff (2026-11-27)
+## 1. State at handoff (2026-11-28)
 
 - **Branch `claude/code-review-project-status-orm47m`, PR #4** (open, not
-  merged). It contains harness steps 1–6 and the missing-values spec.
-- **Local checks:** every check in `AGENTS.md` passes. That is 170 tests,
-  including the fixture parity tests, plus `cargo xtask oracle
-  verify-source`, `cargo xtask gen-data --check` and `cargo xtask oracle
-  status`.
-- **Fixtures:** 38 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
-  backtr 1, gamv 9, kt3d 9, sgsim 4). All were made by the current recipe, and regenerating
-  them gives byte-identical GSLIB outputs.
-- **Specs:**
+  merged). It now holds all work to date: the harness (steps 1–8), missing
+  values, search, parallelism, the RNG building blocks and `sgsim`
+  statistical parity.
+- **Local checks:** every check in `AGENTS.md` passes: 260 tests, 38
+  reference fixtures (3.0 MB), decisions D-001…D-040, findings F-001…F-018.
+  **CI has never run** (§2), so none of it is verified on GitHub.
 
-  | Spec | State |
-  |---|---|
-  | `docs/spec/harness.md` | Steps 1–6 done (6 for the omnidirectional semivariogram only); 7 (kt3d) and 8 (sgsim) to do |
-  | `docs/spec/missing-values.md` | Decided (D-018…D-023); plan steps 1–4 to do |
+### Milestones
 
-- **D-017** (gamv counts each distinct pair once, with no self-pairs) was
-  confirmed by the owner on 2026-11-27.
-- **GitHub CI does not run** (§2). Nothing has been verified by CI. Every
-  "passes" above is from local runs.
+| # | Milestone | State |
+|---|---|---|
+| M0 | Foundations | done |
+| M1 | Merged and running on GitHub | **blocked on the owner** (§2) |
+| M2 | Missing values handled correctly | done (F-011) |
+| M3 | Variograms match GSLIB | omnidirectional `gamv` done; directional `gamv` and the other variogram types need a spec |
+| M4 | Kriging matches GSLIB | search (steps 1–5, CLI flags) and point SK/OK done (F-015); block kriging, trend and external drift, cross-validation, `OnSingular` need a spec |
+| M5 | Simulation matches statistically | RNG spec; ACORN, path and `gauinv` bit for bit (F-017); `sgsim` statistical parity (F-018); parallel realizations. Open: `sisim` parity, transformed `sgsim` cases, the covariance lookup table, 3-D `sgsim` (the stock build is 2-D only; needs a recorded patch), the optional exact-stream mode |
+| M6 | Drop-in for GSLIB users | not started: `.par` files and a compatibility mode, `declus`, finishing `nscore`/`backtr` |
+| M7 | Every GSLIB program | not started: `ik3d`, multi-threshold `sisim`, `cokb3d`, the rest |
+| M8 | Beyond GSLIB | parallelism done; optional GPU benchmark and roadmap §5 remain |
+
+**Specs still to write (grill sessions):** directional `gamv`; the rest of
+`kt3d`; `.par` files and the compatibility mode; then `declus` and `ik3d`.
+
+**Suggested next steps:** (A) fix CI (owner); (B) the directional `gamv`
+spec, to finish M3; (C) `sisim` parity fixtures, to close M5's most visible
+gap.
 
 ## 2. GitHub integration
 
