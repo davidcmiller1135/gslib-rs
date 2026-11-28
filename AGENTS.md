@@ -165,7 +165,7 @@ Further rules:
   behaviour from this source, citing file and routine. Its licence notice is
   in `NOTICE`.
 - **Reference fixtures:** `tests/fixtures/gslib/<program>/<case>/` (`vmodel`,
-  `nscore`, `backtr`, `gamv`, `kt3d` so far). To add one, write its `case.toml`, commit any recipe changes, then run
+  `nscore`, `backtr`, `gamv`, `kt3d`, `sgsim` so far). To add one, write its `case.toml`, commit any recipe changes, then run
   `cargo xtask oracle generate --program <name>` (needs gfortran); never edit
   generated files by hand; `cargo xtask oracle status` lists fixtures made by
   an older recipe. Synthetic inputs come from

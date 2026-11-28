@@ -1,7 +1,7 @@
 # Spec: Random numbers, seeds and streams
 
-Status: **in progress** (grill-me session started 2026-11-28; evidence
-F-016).
+Status: **implemented** except the `sgsim` exact mode (plan step 5, after
+harness step 8); evidence F-016, F-017.
 
 ## Purpose
 
@@ -125,7 +125,9 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
    - Work: move the harness port into `transform`, documented as GSLIB's
      approximation.
    - Tests: RN6 (the existing bound tests move with it).
-4. **GSLIB's random path and the unconditional `sgsim` fixture.**
+4. **GSLIB's random path and the unconditional `sgsim` fixture** (done:
+   `random::gslib_path`, `oracle-case::sgsim`, `harness/tests/sgsim.rs`;
+   1 320 of 1 320 values bit for bit, F-017).
    - Work: `random::gslib_path`, and a minimal `sgsim` case generator in
      `oracle-case`, the start of harness step 8.
    - Tests: RN5, RN7.

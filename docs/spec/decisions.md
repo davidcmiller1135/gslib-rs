@@ -1417,3 +1417,38 @@ From `vendor/gslib-2.0/src/`:
   2), without refusing inputs GSLIB runs correctly.
 - Consequences: the CLI validates the ACORN range only in the exact mode;
   the default mode accepts any `u64`.
+
+## Finding F-017: GSLIB's random streams reproduced bit for bit (2026-11-28)
+RNG spec steps 2–4, against GSLIB 2.0 runs:
+
+- **ACORN** (`random::Acorn`): the despiked values of all 7 `nscore`
+  tables, `ties` and trimmed `with_sentinels` included, are reproduced bit
+  for bit from `Acorn::gslib(69069)`, one draw per kept datum in data
+  order. This confirms the generator, its seeding and the 1 000-draw
+  warm-up.
+- **Random path and deviates** (`random::gslib_path`,
+  `transform::gslib_gauinv`): two unconditional `sgsim` fixtures with
+  nothing to search reproduce **1 320 of 1 320** values bit for bit:
+  - `unconditional`: 12 × 10, 3 realizations from one stream, seed 69069;
+  - `multiple_grid`: 24 × 20, 2 multiple-grid levels, the even seed 1234
+    (D-039).
+- **Unfused arithmetic matters:** `gslib_gauinv` with fused multiply-adds
+  matches only 716 of 1 320 values bit for bit. The reference build
+  (`-ffp-contract=off`) does not fuse.
+- **Mutation checks:**
+  - multiple-grid spacing off by one: 1 770 mismatches;
+  - path reversed: 2 640;
+  - fused `gauinv`: 604.
+
+  Adding 1 instead of `imult` at every level is caught by the unit tests
+  only. In these fixtures every level-2 node is also a level-1 node, so
+  their order is unchanged.
+- **Two `sgsim` limits found on the way:**
+  - when the data file is missing, `sgsim`'s message says it resets
+    `itrans` to 0, but the code resets only `ndmin`, `ndmax` and `sstrat`
+    (`SGSIM.FOR` lines 307–316), so the parameter file must set `itrans =
+    0` itself;
+  - the stock build is **2-D only**: `SGSIM.INC` sets `MAXX = MAXY = 150`
+    and `MAXZ = 1`, and a 3-D grid stops with "available grid size". 3-D
+    `sgsim` fixtures would need a recorded source patch in the recipe's
+    copy.
