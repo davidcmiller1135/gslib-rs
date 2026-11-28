@@ -214,6 +214,12 @@ Each step is one reviewable PR (here: commits on PR #5), and every check in
    - Tests: the CSV layout; the gamv layout under `--gslib-compat`;
      `atol = 0` with and without compat; the `--standardize` error;
      indicator conventions.
+   - **Status: done.** Every variable is extracted with PR #4's
+     missing-value flags and sentinel guard, and rows with no present
+     variable are dropped, as GSLIB's reader drops them. The CSV has
+     `pairs` and `orderings`. The gamv layout writes `pairs`, or GSLIB's
+     `np` (`orderings`) under `--gslib-compat`. The command is sequential:
+     `gamv` has no parallel version yet.
 6. **Fixtures.**
    - Work:
      - extend `oracle-case`'s gamv parameters with optional directions,

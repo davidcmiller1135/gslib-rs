@@ -6,6 +6,7 @@
 
 mod missing;
 mod spec;
+mod vario;
 
 use std::error::Error;
 use std::io::Write as _;
@@ -19,8 +20,7 @@ use gslib_rs::geometry::{Angles, Point3, Ranges};
 use gslib_rs::io::{Extraction, GslibData, MissingCode, PresentSamples, read_gslib, write_gslib};
 use gslib_rs::kriging::{Estimate, ordinary_kriging, simple_kriging};
 use gslib_rs::model::{CovarianceModel, Structure, VariogramModel};
-use gslib_rs::parallel::{experimental_variogram, realizations, try_map};
-use gslib_rs::plot::{VariogramPlot, save};
+use gslib_rs::parallel::{realizations, try_map};
 use gslib_rs::random::Seed;
 use gslib_rs::sample::{Sample, mean_value};
 use gslib_rs::search::{
@@ -29,10 +29,9 @@ use gslib_rs::search::{
 };
 use gslib_rs::simulation::{Axis, DataConditioning, Grid, Searches, sgsim, sisim};
 use gslib_rs::transform::{BackTransform, Tail, normal_scores};
-use gslib_rs::variogram::LagClasses;
 use missing::MissingArgs;
 
-type AppResult<T = ()> = Result<T, Box<dyn Error>>;
+pub(crate) type AppResult<T = ()> = Result<T, Box<dyn Error>>;
 
 /// Variograms, kriging and simulation (a Rust port of GSLIB).
 #[derive(Debug, Parser)]
@@ -45,7 +44,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Experimental variogram, optionally plotted against a model (GSLIB `gamv`, `vargplt`).
-    Variogram(VariogramArgs),
+    Variogram(vario::VariogramArgs),
     /// Simple or ordinary kriging at target locations (GSLIB `kt3d`).
     Krige(KrigeArgs),
     /// Sequential Gaussian simulation with normal-score transform (GSLIB `sgsim`).
@@ -340,32 +339,6 @@ struct RealizationArgs {
     out_prefix: PathBuf,
 }
 
-#[derive(Debug, Args)]
-struct VariogramArgs {
-    /// Input GSLIB data file.
-    #[arg(short, long)]
-    input: PathBuf,
-    #[command(flatten)]
-    columns: Columns,
-    #[command(flatten)]
-    missing: MissingArgs,
-    /// Maximum separation distance.
-    #[arg(short = 'd', long)]
-    max_dist: f64,
-    /// Number of lag classes.
-    #[arg(short = 'n', long)]
-    n_lags: usize,
-    /// Write lags as CSV here instead of standard output.
-    #[arg(short = 'o', long)]
-    out_csv: Option<PathBuf>,
-    /// Plot to this PNG or SVG file.
-    #[arg(long)]
-    plot: Option<PathBuf>,
-    /// Model to overlay on the plot (optional).
-    #[command(flatten)]
-    model: ModelArgs,
-}
-
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum KrigingType {
     /// Simple kriging with a known mean (`--mean`).
@@ -481,7 +454,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> AppResult {
     match cli.command {
-        Command::Variogram(args) => variogram(&args),
+        Command::Variogram(args) => vario::run(&args),
         Command::Krige(args) => krige(&args),
         Command::Sgsim(args) => simulate_gaussian(&args),
         Command::Sisim(args) => simulate_indicator(&args),
@@ -518,56 +491,6 @@ fn read_samples(path: &Path, columns: Columns, missing: &MissingArgs) -> AppResu
         .into());
     }
     Ok(present.into_samples())
-}
-
-fn variogram(args: &VariogramArgs) -> AppResult {
-    let samples = read_samples(&args.input, args.columns, &args.missing)?;
-    let lags = experimental_variogram(&samples, &LagClasses::new(args.max_dist, args.n_lags)?);
-
-    let sink: Box<dyn std::io::Write> = match &args.out_csv {
-        Some(path) => Box::new(std::fs::File::create(path)?),
-        None => Box::new(std::io::stdout().lock()),
-    };
-    let mut csv = csv::Writer::from_writer(sink);
-    csv.write_record(["lag", "mean_distance", "pairs", "gamma"])?;
-    let optional = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
-    for lag in &lags {
-        csv.write_record([
-            lag.center.to_string(),
-            optional(lag.mean_distance),
-            lag.pairs.to_string(),
-            optional(lag.gamma),
-        ])?;
-    }
-    csv.flush()?;
-
-    if let Some(path) = &args.plot {
-        let experimental = lags
-            .iter()
-            .filter_map(|l| Some((l.mean_distance?, l.gamma?)))
-            .collect();
-        let model = if args.model.is_given() {
-            let m = args.model.variogram()?;
-            let origin = Point3::default();
-            let curve = (0..=200_u32)
-                .map(|i| {
-                    let h = args.max_dist * f64::from(i) / 200.0;
-                    (h, m.gamma(origin, Point3::new(h, 0.0, 0.0)))
-                })
-                .collect();
-            Some(curve)
-        } else {
-            None
-        };
-        save(
-            &VariogramPlot {
-                experimental,
-                model,
-            },
-            path,
-        )?;
-    }
-    Ok(())
 }
 
 fn krige(args: &KrigeArgs) -> AppResult {
