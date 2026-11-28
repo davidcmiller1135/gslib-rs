@@ -53,7 +53,7 @@ Status key: ✅ done · 🟡 partial · ⬜ missing.
 
 | GSLIB | Status | gslib-rs | Missing for parity |
 |---|---|---|---|
-| `sgsim` | 🟡 | `simulation::sgsim` on a `Grid` with separate data and node searches (`search::NodeSearch`, GSLIB's covariance-ranked "spiral" table), `sgsim` CLI | **covariance lookup table** for the kriging matrices; multiple-grid refinement; assigning data to grid nodes; locally varying mean; collocated cokriging with a secondary variable |
+| `sgsim` | 🟡 | `simulation::sgsim` on a `Grid` with separate data and node searches (`search::NodeSearch`, GSLIB's covariance-ranked "spiral" table), `sgsim` CLI; statistical parity fixtures (F-018) and GSLIB's random stream reproduced bit for bit (F-017) | **covariance lookup table** for the kriging matrices; multiple-grid refinement; assigning data to grid nodes; locally varying mean; collocated cokriging with a secondary variable |
 | `sisim` | 🟡 | `simulation::sisim` | multiple thresholds; categorical; soft data; Markov–Bayes; order-relation corrections |
 | `sasim` | 🟡 | `simulation::sasim` | conditional-distribution objective; **incremental objective updates** (currently a full recompute per perturbation); variogram objectives in several directions; CLI subcommand |
 | `anneal` | ⬜ | | post-processing of an existing realization by annealing |

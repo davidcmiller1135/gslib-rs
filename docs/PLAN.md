@@ -13,8 +13,8 @@ and findings: `docs/spec/decisions.md`.
   including the fixture parity tests, plus `cargo xtask oracle
   verify-source`, `cargo xtask gen-data --check` and `cargo xtask oracle
   status`.
-- **Fixtures:** 36 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
-  backtr 1, gamv 9, kt3d 9, sgsim 2). All were made by the current recipe, and regenerating
+- **Fixtures:** 38 under `tests/fixtures/gslib/` (vmodel 8, nscore 7,
+  backtr 1, gamv 9, kt3d 9, sgsim 4). All were made by the current recipe, and regenerating
   them gives byte-identical GSLIB outputs.
 - **Specs:**
 
@@ -129,7 +129,7 @@ and acceptance tests named in it.
 | C3 | **Done** (F-015, D-035): `kt3d` harness step 7, simple and ordinary point kriging, with the search checked through `kt3d`'s debug output; the `picksup` miss confirmed | `harness.md` step 7 | — |
 | C4 | **Spec first:** `kt3d` completeness (block discretisation, trend/KT, external drift, cross-validation, gridded output, `OnSingular` policy and its UNEST code, ledger item "unsolvable systems are skipped") | new `docs/spec/kt3d.md` | C3 |
 | C5 | **Spec done** (`docs/spec/rng.md`, D-036…D-039); **steps 1–4 done** (F-017: ACORN, path and `gauinv` bit for bit against GSLIB): ChaCha8 by default with realization k on stream k; ACORN, GSLIB's path and `gauinv` as checked building blocks; an `sgsim` exact mode after harness step 8 | `docs/spec/rng.md` | A2 |
-| C6 | `sgsim` harness step 8: statistical parity, N = 100 realizations, R8 statistics, fixture < 2 MB. Also adds the covariance lookup table and spiral search. | `harness.md` step 8; needs C2, C5 | C2, C5 |
+| C6 | **Done** (F-018, D-040): `sgsim` statistical parity (harness step 8), unconditional and conditional, within 5 SE of GSLIB and of the model | `harness.md` step 8 | — |
 | C7 | **Spec done** (`docs/spec/parallelism.md`, D-029…D-033); **steps 1–4 done**: `rayon` in an opt-in `parallel` module; parallel kriging over targets; exact pair pruning and a fixed-block parallel variogram; parallel realizations after C5; GPU only with evidence | `docs/spec/parallelism.md` | C2 step 2 (done); realizations also need C5 |
 
 ### Phase D: remaining parity (ROADMAP §1, suggested order)

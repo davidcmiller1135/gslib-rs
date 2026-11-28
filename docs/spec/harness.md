@@ -165,7 +165,8 @@ step weakens a lint or tolerance.
    - Cases: simple and ordinary kriging at points, with a search covering
      every datum; well- and ill-conditioned configurations.
    - Then a decision entry calibrating k in k·cond(A)·ε (D-010).
-8. **sgsim.** Groundwork done: an `sgsim` case generator (so far only
+8. **sgsim** (done: statistical parity, two fixtures of 100 realizations,
+   F-018, statistics D-040). Groundwork: an `sgsim` case generator (so far only
    unconditional runs with nothing to search, RNG spec RN7) and two
    fixtures reproduced bit for bit (F-017). The stock build is 2-D only
    (`MAXZ = 1`), so statistical-parity cases stay 2-D or the recipe patches

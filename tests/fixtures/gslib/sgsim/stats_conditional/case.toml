@@ -1,0 +1,18 @@
+schema = 1
+program = "sgsim"
+description = "Statistical parity (R8, D-011): 100 realizations conditioned on 12 normal-score data at node centres (no transform), otherwise as stats_unconditional. Ensemble statistics are compared with gslib-rs's within 5 standard errors, and every realization must reproduce the data at their nodes."
+inputs = ["gaussian_on_grid.dat"]
+
+[parameters]
+grid_counts = [16, 16, 1]
+grid_origin = [0.5, 0.5, 0.5]
+grid_spacing = [1.0, 1.0, 1.0]
+realizations = 100
+seed = 1357
+search_radius = 12.0
+data = "gaussian_on_grid.dat"
+coordinate_columns = [1, 2, 3]
+variable_column = 4
+max_data = 8
+max_nodes = 12
+structures = [{ kind = 1, cc = 1.0, angles = [0.0, 0.0, 0.0], ranges = [8.0, 8.0, 8.0] }]

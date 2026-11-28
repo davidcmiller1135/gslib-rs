@@ -17,6 +17,14 @@ mod sgsim {
     use oracle_case::Fixture;
     use oracle_case::sgsim::{OUTPUT_FILE, Params};
 
+    /// The RN7 cases: no data and a search radius below the node spacing,
+    /// so every node is `gauinv(p)`. The other `sgsim` cases are statistical
+    /// (`sgsim_stats.rs`).
+    fn nothing_to_search(p: &Params) -> bool {
+        let shortest = p.grid_spacing.iter().copied().fold(f64::INFINITY, f64::min);
+        p.data.is_none() && p.search_radius < shortest
+    }
+
     fn grid(p: &Params) -> Grid {
         let axis = |a: usize| Axis {
             count: usize::try_from(p.grid_counts[a]).unwrap(),
@@ -85,8 +93,9 @@ mod sgsim {
             .unwrap()
             .into_iter()
             .filter(|f| f.case.program == "sgsim")
+            .filter(|f| nothing_to_search(&Params::from_table(&f.case.parameters).unwrap()))
             .collect();
-        assert!(!fixtures.is_empty(), "no sgsim fixtures found");
+        assert!(!fixtures.is_empty(), "no sgsim stream fixtures found");
         let failures: Vec<String> = fixtures.iter().flat_map(check).collect();
         assert!(
             failures.is_empty(),

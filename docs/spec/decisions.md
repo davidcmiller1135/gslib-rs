@@ -1452,3 +1452,54 @@ RNG spec steps 2–4, against GSLIB 2.0 runs:
     and `MAXZ = 1`, and a 3-D grid stops with "available grid size". 3-D
     `sgsim` fixtures would need a recorded source patch in the recipe's
     copy.
+
+## D-040: The statistics for sgsim parity
+- Status: decided during implementation (it follows from D-011, R8 and the
+  statistics; open to revision)
+- Topic: harness.md (step 8)
+- Question: Which per-realization statistics does R8 compare, and against
+  what?
+- Decision:
+  - **Statistics**, per realization:
+    - the experimental semivariogram along x and along y at lags 1–6 (all
+      pairs of nodes h apart in that direction);
+    - the proportion of nodes below each decile of N(0, 1).
+  - **Comparisons**, each within 5 standard errors:
+    - GSLIB's ensemble mean against gslib-rs's, with the combined error
+      `sqrt(s²_gslib/N + s²_ours/N)`;
+    - unconditional cases only: gslib-rs's ensemble mean against the model
+      (γ(h) and the decile), GSLIB's distance from the model reported;
+    - conditional cases: the data reproduced exactly at their nodes in
+      every realization of both.
+  - **Cases:** 2-D (stock `sgsim` is 2-D, F-017), no transform (data in
+    normal-score units), 16 × 16 nodes, N = 100.
+- Rationale: for a stationary Gaussian field, `E[γ̂(h)] = γ(h)` and `E[the
+  proportion below z] = Φ(z)`, so the model checks are unbiased. Sample
+  quantiles, by contrast, are biased by each realization's own mean, which
+  is why R8's "per quantile" is taken at the model's deciles. Keeping the
+  transform out separates simulation parity from transform parity, which
+  F-007 covers.
+- Consequences: transformed cases (`itrans = 1`) and other kriging types
+  are later cases with their own statistics, if needed.
+
+## Finding F-018: sgsim statistical parity (2026-11-28)
+Harness step 8, two fixtures of 100 realizations each (16 × 16 nodes,
+spherical model of sill 1 and range 8, search radius 12, 12 nodes, 8
+data), 21 statistics each (D-040):
+
+- **`stats_unconditional`:**
+  - GSLIB vs gslib-rs: worst difference 2.22 standard errors;
+  - against the model: gslib-rs 2.03 SE, GSLIB 1.93 SE.
+- **`stats_conditional`** (12 normal-score data on nodes): worst 1.08 SE;
+  every datum is exact at its node in all 100 realizations of both.
+- **Power, from planted bugs in gslib-rs's `sgsim`:**
+  - kriging variance used as the standard deviation: 46 mismatches (up to
+    121 SE);
+  - standard deviation 5% low: 11 mismatches (up to 9.4 SE);
+  - conditional mean shifted by 0.05 per node: 11 mismatches (proportions,
+    up to 6.4 SE).
+  
+  Removing the data-at-nodes rule changes nothing: a datum on a node is
+  found at distance 0 and simple kriging returns it with zero variance, so
+  that change is equivalent.
+- **Size:** about 0.67 MB per fixture, under D-011's 2 MB.
