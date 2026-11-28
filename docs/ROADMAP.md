@@ -93,7 +93,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Topic | GSLIB | gslib-rs default | Legacy policy |
 |---|---|---|---|
 | Errors | stops, or writes a message and carries on | returns `Result`; never panics | (n/a) |
-| Unsolvable kriging system | node skipped / written as `UNEST` | `Error::SingularSystem` | planned: `OnSingular::SkipAsUnestimated` |
+| Unsolvable kriging system | node written as `UNEST` when `ktsol` finds a pivot below an absolute `1e-11` (`KTSOL.FOR`; `KT3D.FOR` line 968) | `Error::SingularSystem` when rcond < n·ε (D-055) | planned: `OnSingular::Unestimated` with `SingularTest::GslibPivot` (D-056) |
 | Anisotropy ratio ≤ 0 | clamped to `EPSLON` | `Error::InvalidInput` | planned: clamp policy |
 | Power model covariance | `PMX − γ` with a large `PMX` | `CovarianceModel` cannot be built from it | planned, if exact parity needs it |
 | Ties in `nscore` | every datum perturbed by ACORN × 1e-6 (seed 69069), so ties break randomly (F-005) | tied values share one score | planned: random despiking with ACORN |
@@ -104,7 +104,7 @@ behaviour in this table are recalled from memory until checked off in §6.
 | Lag classes | centres at multiples of `xlag`, inclusive tolerance `xltol`, may overlap; `xltol ≤ 0` silently becomes `xlag/2` | `CentredLags` reproduces this (F-008); a non-positive tolerance is an error; equal-width `LagClasses` also available | n/a; `sasim` should move to grid lag vectors, as GSLIB's SASIM uses (D-042) |
 | Zero-distance lag (`gamv`) | also pairs each datum with itself, diluting γ there towards 0 (F-008) | distinct coincident pairs only | none (GSLIB's value is recoverable via F-008's relations); D-017 |
 | Super-block selection misses data (kt3d) | `picksup` tests 27 lattice points between blocks, so a thin rotated search ellipsoid can reach into a skipped block: data inside the ellipsoid are ignored (F-012, confirmed in F-015) | exact block bound, never skips an in-range datum (D-025) | none (a defect) |
-| Ordinary kriging with one datum (kt3d) | UNEST, since OK's unbiasedness counts as a drift term (`1 ≤ na ≤ mdt = 1`, F-014) | estimates with weight 1, variance 2γ(h) | possible legacy policy |
+| Ordinary kriging with one datum (kt3d) | UNEST, since OK's unbiasedness counts as a drift term (`1 ≤ na ≤ mdt = 1`, F-014) | estimates with weight 1, variance 2γ(h) | planned: `DriftDataRule::GslibUnestimated`, which skips every `1 ≤ na ≤ mdt` (D-056) |
 | Simple kriging with one datum (kt3d) | returns the datum and the OK variance 2(C(0) − C(h)) (F-014) | true SK: m + (C(h)/C(0))(v − m), variance C(0) − C(h)²/C(0) | none (a defect) |
 | Node-search extent (`sgsim`) | the covariance table is capped at ±35 nodes in x and y and 0 in z (`MAXCTX = MAXCTY = 71`, `MAXCTZ = 1`), so nodes inside the radius beyond the cap, and every node above or below, are silently ignored (F-013) | the whole search ellipsoid (S10) | `TableExtent::Gslib { max }` |
 | Node-search order (`sgsim`) | unstable sort by `−C(h) + 10⁻¹⁰·q(h)` (F-012) | decreasing `C(h)`, then `q(h)`, then offset index: a total order (D-026) | GSLIB's order: deferred to the exact-stream parity spec |
@@ -255,7 +255,7 @@ reference run, and say which.
 - [x] `gamv` lag definition: centres `(il−2)·xlag`, inclusive `±xltol`
   (overlapping), zero class `h ≤ 1e-20`, cut-off `(nlag + 0.5)·xlag`.
   `GAMV.FOR`, confirmed by fixtures including exact-boundary pairs. F-008.
-- [ ] Unsolvable kriging systems are skipped and written as `UNEST`: §2
+- [x] Unsolvable kriging systems are written as `UNEST`: `KT3D.FOR` line 968 on `ktsol`'s `ising` (absolute pivot `tol = 0.1e-10`, `KTSOL.FOR`); also `1 ≤ na ≤ mdt` without solving (lines 707–716). Read from the source (D-055, D-056); fixture check planned (K2)
 - [x] Standard-normal reference values in the `transform.rs` tests: agree
   within 4.4e-16 with Python's `statistics.NormalDist` (CPython 3.13). F-007.
 - [x] GSLIB version and licence terms of the reference source: GSLIB 2.0

@@ -97,6 +97,7 @@ built from the kriging weights (negative `koption`). It belongs to the
 |---|---|---|---|
 | D-054 | Scope | all of `kt3d` except the IK-type distribution (deferred to D3) | (n/a) |
 | D-055 | Singular test | `SingularTest::Rank`: rcond < n·ε, failed factorisation, non-finite result | `SingularTest::GslibPivot`: `ktsol` on GSLIB's scaled matrix, `\|p\| < 1e-11` |
+| D-056 | Unsolvable / too few for the drift | `OnSingular::Error`; `DriftDataRule::Solve` | `OnSingular::Unestimated`; `DriftDataRule::GslibUnestimated` (`1 ≤ na ≤ mdt` → UNEST) |
 
 ## Acceptance criteria
 
@@ -111,3 +112,15 @@ built from the kriging weights (negative `koption`). It belongs to the
 - **K3 (D-055).** Unit invariance: scaling every value by 10⁶ and the
   model's variance contributions by 10¹² does not change which systems
   `SingularTest::Rank` calls singular (property test).
+- **K4 (D-056).** Given a singular system, when the target is estimated
+  under `OnSingular::Error`, then the result is `Error::SingularSystem`;
+  under `OnSingular::Unestimated`, it is `None` and the other targets are
+  unaffected.
+- **K5 (D-056).** Given OK with one datum, under `DriftDataRule::Solve`
+  the estimate is the datum with weight 1 and variance `2γ(h)` (point);
+  under `DriftDataRule::GslibUnestimated` it is `None`, as in the
+  `sk_single_datum`/`picksup_probe` fixtures' OK nodes.
+- **K6 (D-056).** Given KT with linear drift in x and y (`mdt = 3`) and
+  exactly 3 non-collinear data, under `Solve` the weights reproduce the
+  drift exactly (`Σ wᵢ = 1`, `Σ wᵢxᵢ = x₀`, `Σ wᵢyᵢ = y₀`); under
+  `GslibUnestimated` the target is `None`, matching a fixture.

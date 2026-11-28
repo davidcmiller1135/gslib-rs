@@ -2280,3 +2280,36 @@ the legacy reading of `harness::gamv::legacy`, on all 17 gamv fixtures.
     the default;
   - which test applies is an input to the `OnSingular` policy (next
     decision), not a global setting.
+
+## D-056: Policies for unsolvable systems and too few data for the drift
+- Status: decided (owner, 2026-11-28)
+- Topic: kt3d.md
+- Question: GSLIB writes UNEST for a singular system (`kt3d`, line 968) and,
+  without solving, for `1 ≤ na ≤ mdt` (lines 707–716), where `mdt` counts
+  OK's constraint and every drift term. What does gslib-rs do in each case?
+- Options: (A) two policies shaped like `OnTooFewData`: `OnSingular` and
+  `DriftDataRule`, solving by default; (B) one `OnUnsolvable` policy, with
+  GSLIB's `na ≤ mdt` rule always applied; (C) A, but `na ≤ mdt` an error by
+  default.
+- Decision: **A.**
+  - `OnSingular::{Error (default), Unestimated}`, applied per target, with
+    the same `resolve` shape as `OnTooFewData`. `Error::SingularSystem`
+    names the target (grid node or jackknife row) in the CLI's message.
+  - `DriftDataRule::{Solve (default), GslibUnestimated}`. `Solve`: build
+    and solve the system whatever `na` is, and let D-055's test decide.
+    `GslibUnestimated`: `1 ≤ na ≤ mdt` gives `None` before any solve, as
+    GSLIB does.
+- Rationale: the two paths have different causes. The `na ≤ mdt` skip
+  coerces systems that are often solvable (with `na = mdt` the constraints
+  alone fix the weights), so it must be opt-in (`AGENTS.md`, *Legacy
+  behaviour*); making it an error would refuse estimates already accepted
+  (OK with one datum, F-014). Matching `OnTooFewData` keeps one idiom
+  (*Follow workspace conventions*).
+- Consequences:
+  - F-014's "possible legacy policy" for OK with one datum is
+    `DriftDataRule::GslibUnestimated`; ROADMAP §2 is updated;
+  - the GSLIB-compatibility mode (PLAN D5) selects `OnSingular::Unestimated`,
+    `SingularTest::GslibPivot` and `DriftDataRule::GslibUnestimated`;
+  - the ledger item "unsolvable kriging systems are skipped and written as
+    UNEST" is checked off from the source (line 968, `ktsol`'s `ising`),
+    with K2 as its fixture check.
