@@ -60,6 +60,12 @@ pub struct Legacy {
     pub self_pair_data: Vec<usize>,
     /// The sills, as GSLIB computed them (`None`: GSLIB's −999).
     pub sills: Vec<Option<f64>>,
+    /// The data locations (a copy of what `data` holds).
+    pub points: Vec<Point3>,
+    /// The kernel's columns (a copy of what `data` holds).
+    pub columns: Vec<Vec<Option<f64>>>,
+    /// The upper trimming limit.
+    pub tmax: f64,
 }
 
 impl Legacy {
@@ -152,6 +158,14 @@ fn self_pair_data(
         .collect()
 }
 
+fn locations(xs: &[f64], ys: &[f64], zs: &[f64]) -> Vec<Point3> {
+    xs.iter()
+        .zip(ys)
+        .zip(zs)
+        .map(|((&x, &y), &z)| Point3::new(x, y, z))
+        .collect()
+}
+
 /// The directions, with GSLIB's 45° for a non-positive tolerance (D-044).
 fn directions(p: &Params) -> Result<Vec<Direction>, String> {
     p.directions
@@ -215,13 +229,7 @@ pub fn build(dir: &Path, p: &Params) -> Result<Legacy, String> {
             .collect()
     };
     let [cx, cy, cz] = p.coordinate_columns;
-    let (xs, ys, zs) = (kept(&raw(cx)?), kept(&raw(cy)?), kept(&raw(cz)?));
-    let points: Vec<Point3> = xs
-        .iter()
-        .zip(&ys)
-        .zip(&zs)
-        .map(|((&x, &y), &z)| Point3::new(x, y, z))
-        .collect();
+    let points = locations(&kept(&raw(cx)?), &kept(&raw(cy)?), &kept(&raw(cz)?));
     let pairable = |v: f64| (v >= tmin && v <= tmax).then_some(v);
     let names = file.names();
     let mut kernel_columns: Vec<Vec<Option<f64>>> = Vec::new();
@@ -281,12 +289,15 @@ pub fn build(dir: &Path, p: &Params) -> Result<Legacy, String> {
         sills: sills.clone(),
         policies: GamvPolicies::gslib(),
     };
-    let data = Data::new(points, kernel_columns).map_err(|e| e.to_string())?;
+    let data = Data::new(points.clone(), kernel_columns.clone()).map_err(|e| e.to_string())?;
     Ok(Legacy {
         data,
         request,
         variograms,
         self_pair_data,
         sills,
+        points,
+        columns: kernel_columns,
+        tmax,
     })
 }

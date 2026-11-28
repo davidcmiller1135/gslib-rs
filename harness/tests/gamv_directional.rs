@@ -13,13 +13,20 @@
 //!   The omnidirectional semivariogram cases (gamv.rs) check the self-pair
 //!   relations of F-008 in full.
 //!
+//! - **A datum at exactly `tmax` in an omnidirectional direction** (F-026),
+//!   only where a case declares the expected deviation
+//!   `omnidirectional_at_tmax`: GSLIB tests the swapped ordering against
+//!   `[tmin, tmax)`, so it loses one ordering per pair involving such a datum.
+//!   Its count is then checked exactly, and values only in lags without such
+//!   pairs.
+//!
 //! Values use D-015's 1e-12, relative to a scale per table: the largest of
 //! |γ|, `|m_t·m_h|` (covariances are differences of such products) and the
 //! sills for type −3; the largest |mean|; `xlag` for distances.
 
 #[cfg(test)]
 mod gamv_directional {
-    use gslib_rs::variogram::{DirectionalVariogram, GamvLag, gamv};
+    use gslib_rs::variogram::{DirectionalVariogram, GamvLag, LagScheme, Separation, gamv};
     use harness::compare::{Comparison, DIRECT};
     use harness::gamv::legacy::{Legacy, build};
     use harness::gamv::{Row, Table, parse_output};
@@ -161,6 +168,40 @@ mod gamv_directional {
         }
     }
 
+    /// The expected deviation F-026 introduces.
+    const AT_TMAX: &str = "omnidirectional_at_tmax";
+
+    /// Per lag: the orderings GSLIB loses in omnidirectional direction `d`
+    /// because a value of the variogram's pair equals `tmax` (F-026), counted
+    /// independently with gslib-rs's public pair primitives. Only for
+    /// variograms with tail = head.
+    fn lost_at_tmax(legacy: &Legacy, v: usize, d: usize) -> Vec<usize> {
+        let spec = legacy.request.variograms[v];
+        assert_eq!(spec.tail, spec.head, "F-026 relation needs tail = head");
+        let column = &legacy.columns[spec.tail];
+        let window = legacy.request.directions[d].window(legacy.request.policies.pi);
+        let mut lost = vec![0; legacy.request.lags.len()];
+        let n = legacy.points.len();
+        for i in 0..n {
+            for j in i..n {
+                let (Some(a), Some(b)) = (column[i], column[j]) else {
+                    continue;
+                };
+                if a.to_bits() != legacy.tmax.to_bits() && b.to_bits() != legacy.tmax.to_bits() {
+                    continue;
+                }
+                let sep = Separation::new(legacy.points[i], legacy.points[j]);
+                if window.accept(&sep).is_none() {
+                    continue;
+                }
+                for k in legacy.request.lags.classes(sep.distance()) {
+                    lost[k] += 1;
+                }
+            }
+        }
+        lost
+    }
+
     fn compare(
         f: &Fixture,
         name: &str,
@@ -201,6 +242,11 @@ mod gamv_directional {
                 )
             });
             let omni = directions[dv.direction][1] >= 90.0;
+            let lost = if omni && cmp.is_expected_deviation(AT_TMAX) {
+                lost_at_tmax(legacy, dv.variogram, dv.direction)
+            } else {
+                vec![0; dv.lags.len()]
+            };
             let s = scales(table, legacy, dv.variogram);
             let mut check = Check {
                 cmp: &mut cmp,
@@ -216,7 +262,7 @@ mod gamv_directional {
                 );
                 if k == 0 {
                     let selfs = legacy.self_pairs(dv.variogram, omni);
-                    let with_selfs = u64::try_from(lag.orderings + selfs).unwrap();
+                    let with_selfs = u64::try_from(lag.orderings + selfs - lost[0]).unwrap();
                     check.cmp.structure(row.pairs == with_selfs, || {
                         format!(
                             "{name}: {at}: GSLIB np {} != orderings + self-pairs {with_selfs}",
@@ -225,6 +271,16 @@ mod gamv_directional {
                     });
                     check.cmp.structure(row.distance.abs() <= 1e-20, || {
                         format!("{name}: {at}: zero class at distance {}", row.distance)
+                    });
+                } else if lost[k] > 0 {
+                    // F-026: GSLIB summed fewer orderings; only the count can
+                    // be compared.
+                    let expected = u64::try_from(lag.orderings - lost[k]).unwrap();
+                    check.cmp.structure(row.pairs == expected, || {
+                        format!(
+                            "{name}: {at}: GSLIB np {} != orderings − lost at tmax {expected}",
+                            row.pairs
+                        )
                     });
                 } else {
                     check.lag(&at, row, lag, g.gslib_type, &s);
