@@ -115,7 +115,13 @@ Each step is one reviewable PR; the checks in `AGENTS.md` must pass.
    - Work: `random::Acorn` (`new`, `gslib`, `next_acorni`, `TryRng`).
    - Tests: RN3 (unit tests from the recurrence, and the `nscore`
      despiking oracle in the harness), RN4.
-3. **`gauinv` in the library.**
+3. **`gauinv` in the library** (done: `transform::gslib_gauinv` and
+   `GSLIB_GAUINV_MAX_ERROR`; GSLIB's evaluation order without fused
+   multiply-adds, and its ±1e10 and 0.5 contract, documented as a
+   reproduction, not a general quantile. The harness re-exports it. With
+   the unfused arithmetic, the `nscore` explanation check reproduces
+   GSLIB's scores exactly on the unweighted fixtures; the weighted case
+   stays within 1.8e-14, from cumulative-weight accumulation).
    - Work: move the harness port into `transform`, documented as GSLIB's
      approximation.
    - Tests: RN6 (the existing bound tests move with it).
