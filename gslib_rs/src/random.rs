@@ -17,6 +17,7 @@ use rand::{SeedableRng, TryRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::error::{Error, Result};
+use crate::simulation::Grid;
 
 /// The default generator: one realization's stream (D-036).
 pub type Stream = ChaCha8Rng;
@@ -138,6 +139,49 @@ impl TryRng for Acorn {
         }
         Ok(())
     }
+}
+
+/// GSLIB `sgsim`'s random path (`SGSIM.FOR` lines 814–842; RN5): the order
+/// in which a realization visits the nodes of `grid`, as 0-based indices.
+///
+/// One [`Acorn::next_acorni`] is drawn per node in grid order (x fastest).
+/// With `multiple_grid = Some(n)` (GSLIB `mults = 1, nmult = n`), `imult` is
+/// added to the draw of every node on the coarse grid of level `imult`
+/// (every `4·imult`-th node along each axis that has more than one), for
+/// `imult = 1..=n`, exactly as GSLIB does. Nodes are then visited in
+/// increasing order of their keys; equal keys, which need equal 30-bit
+/// draws, go by node index (GSLIB's `sortem` leaves their order
+/// unspecified).
+#[must_use]
+pub fn gslib_path(acorn: &mut Acorn, grid: &Grid, multiple_grid: Option<usize>) -> Vec<usize> {
+    let mut keys: Vec<f64> = (0..grid.len()).map(|_| acorn.next_acorni()).collect();
+    if let Some(levels) = multiple_grid {
+        let [nx, ny, nz] = grid.counts();
+        for imult in 1..=levels {
+            let step = imult.saturating_mul(4);
+            let coarse = |n: usize| n.div_euclid(step).max(1);
+            let (nnx, nny, nnz) = (coarse(nx), coarse(ny), coarse(nz));
+            // GSLIB's 1-based jx, jy, jz start at 1 and change only along
+            // axes with more than one coarse node.
+            let at = |n: usize, i: usize| if n > 1 { i * step } else { 1 };
+            for iz in 1..=nnz {
+                for iy in 1..=nny {
+                    for ix in 1..=nnx {
+                        let cell = [at(nnx, ix) - 1, at(nny, iy) - 1, at(nnz, iz) - 1];
+                        if let Some(key) = grid.index_of(cell).and_then(|i| keys.get_mut(i)) {
+                            *key += crate::num::to_f64(imult);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut order: Vec<usize> = (0..grid.len()).collect();
+    order.sort_by(|&a, &b| {
+        let key = |i: usize| keys.get(i).copied().unwrap_or(f64::INFINITY);
+        key(a).total_cmp(&key(b)).then(a.cmp(&b))
+    });
+    order
 }
 
 #[cfg(test)]
@@ -265,5 +309,55 @@ mod tests {
         let w1 = (b.next_word() << 2).to_le_bytes();
         let w2 = (b.next_word() << 2).to_le_bytes();
         assert_eq!(bytes, [w1[0], w1[1], w1[2], w1[3], w2[0], w2[1]]);
+    }
+
+    fn grid(nx: usize, ny: usize) -> Grid {
+        use crate::simulation::Axis;
+        let axis = |count| Axis {
+            count,
+            first_center: 0.5,
+            spacing: 1.0,
+        };
+        Grid::new(axis(nx), axis(ny), axis(1)).unwrap()
+    }
+
+    #[test]
+    fn the_path_sorts_nodes_by_their_draws() {
+        // RN5: one draw per node in grid order; visit by increasing draw.
+        let g = grid(5, 4);
+        let path = gslib_path(&mut Acorn::gslib(69069).unwrap(), &g, None);
+        let mut acorn = Acorn::gslib(69069).unwrap();
+        let draws: Vec<f64> = (0..20).map(|_| acorn.next_acorni()).collect();
+        assert!(
+            path.windows(2).all(|w| draws[w[0]] <= draws[w[1]]),
+            "{path:?}"
+        );
+        let mut sorted = path;
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..20).collect::<Vec<_>>(), "a permutation");
+    }
+
+    #[test]
+    fn the_multiple_grid_delays_coarse_nodes() {
+        // 12 x 10: level 1 adds 1 at x in {4, 8, 12}, y in {4, 8} (1-based);
+        // level 2 has one coarse node per axis (12/8 = 10/8 = 1), so it adds
+        // 2 at (1, 1). All other keys stay in [0, 1).
+        let g = grid(12, 10);
+        let path = gslib_path(&mut Acorn::gslib(5).unwrap(), &g, Some(2));
+        let level_one: Vec<usize> = [4, 8, 12]
+            .iter()
+            .flat_map(|&x| [4, 8].map(|y| (x - 1) + 12 * (y - 1)))
+            .collect();
+        let n = path.len();
+        assert_eq!(path[n - 1], 0, "node (1, 1) has key in [2, 3): last");
+        let before_last: Vec<usize> = path[n - 7..n - 1].to_vec();
+        let mut expected = level_one;
+        expected.sort_unstable();
+        let mut got = before_last;
+        got.sort_unstable();
+        assert_eq!(got, expected, "the six level-1 nodes come just before it");
+        // Without the multiple grid, the same draws give another order.
+        let plain = gslib_path(&mut Acorn::gslib(5).unwrap(), &g, None);
+        assert_ne!(plain, path);
     }
 }

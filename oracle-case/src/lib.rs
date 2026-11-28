@@ -16,6 +16,7 @@ pub mod backtr;
 pub mod gamv;
 pub mod kt3d;
 pub mod nscore;
+pub mod sgsim;
 pub mod vmodel;
 
 /// Version of the case and provenance schema this crate reads.
