@@ -274,8 +274,29 @@ fn normal_scores(_: &mut ChaCha8Rng) -> Rows {
     Rows { names: XYZV, rows }
 }
 
+fn gaussian_on_grid(rng: &mut ChaCha8Rng) -> Rows {
+    // 12 distinct nodes of a 16 x 16 grid with centres at 0.5, 1.5, ...,
+    // 15.5, each with a standard normal value: conditioning data in
+    // normal-score units that sit exactly on nodes.
+    let mut nodes: Vec<(u32, u32)> = Vec::new();
+    while nodes.len() < 12 {
+        let node = (rng.random_range(0..16_u32), rng.random_range(0..16_u32));
+        if !nodes.contains(&node) {
+            nodes.push(node);
+        }
+    }
+    let rows = nodes
+        .into_iter()
+        .map(|(i, j)| {
+            let centre = |k: u32| f64::from(k) + 0.5;
+            vec![centre(i), centre(j), 0.5, rounded(normal(rng), 6)]
+        })
+        .collect();
+    Rows { names: XYZV, rows }
+}
+
 /// Every suite, in the order the README lists them.
-pub(crate) const SUITES: [Suite; 12] = [
+pub(crate) const SUITES: [Suite; 13] = [
     Suite {
         name: "smooth",
         seed: 1,
@@ -358,6 +379,13 @@ pub(crate) const SUITES: [Suite; 12] = [
         seed: 12,
         note: "Normal scores from -4.5 to 4.5 in steps of 0.25 plus every backtr_table node: back-transform tails and interior.",
         build: normal_scores,
+        format: Format::Gslib,
+    },
+    Suite {
+        name: "gaussian_on_grid",
+        seed: 13,
+        note: "12 standard normal values at distinct node centres of a 16 x 16 grid (origin 0.5, spacing 1): conditioning data in normal-score units for sgsim statistical parity, reproduced exactly at their nodes.",
+        build: gaussian_on_grid,
         format: Format::Gslib,
     },
 ];
@@ -527,6 +555,28 @@ mod tests {
         assert!(
             v.iter().filter(|&&x| !is_sentinel(x)).all(|&x| x > -100.0),
             "no accidental sentinels"
+        );
+    }
+
+    #[test]
+    fn gaussian_data_sit_on_distinct_node_centres() {
+        let rows = suite("gaussian_on_grid").rows().rows;
+        assert_eq!(rows.len(), 12);
+        let on_centre = |v: f64| (0.5..16.0).contains(&v) && (v - 0.5).fract() == 0.0;
+        assert!(
+            rows.iter()
+                .all(|r| on_centre(r[0]) && on_centre(r[1]) && r[2].to_bits() == 0.5_f64.to_bits())
+        );
+        let mut cells: Vec<(u64, u64)> = rows
+            .iter()
+            .map(|r| (r[0].to_bits(), r[1].to_bits()))
+            .collect();
+        cells.sort_unstable();
+        cells.dedup();
+        assert_eq!(cells.len(), 12, "distinct nodes");
+        assert!(
+            rows.iter().all(|r| r[3].abs() < 4.0),
+            "plausible normal scores"
         );
     }
 }

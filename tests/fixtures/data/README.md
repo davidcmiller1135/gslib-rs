@@ -20,3 +20,4 @@ copies it into the case directory.
 | `with_sentinels.dat` | 10 | `4b0b5ca2967d7ba30f23a303d96bf04b1c81944039c70f05ce633c11104b7b58` | 40 points where every fifth value is -999: trimming limits and missing values (docs/spec/missing-values.md). |
 | `backtr_table.dat` | 11 | `fb6c9522b32b65b8bf09447a1f69a0adb531da9cd6ce905d9eb6543cbc18e87f` | A 25-row backtr transformation table (no header): sorted lognormal values against exact midpoint normal scores. |
 | `normal_scores.dat` | 12 | `8859bf0e3d9d307f1c2e83bbd8a3bc3814c5a6d5ed79dcbc1e2f48505e6c17a2` | Normal scores from -4.5 to 4.5 in steps of 0.25 plus every backtr_table node: back-transform tails and interior. |
+| `gaussian_on_grid.dat` | 13 | `043507a65beda8917ba721d5e83bbc7153f47ca5df5c1217a2cb76e478c973ca` | 12 standard normal values at distinct node centres of a 16 x 16 grid (origin 0.5, spacing 1): conditioning data in normal-score units for sgsim statistical parity, reproduced exactly at their nodes. |

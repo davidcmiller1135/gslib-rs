@@ -66,10 +66,16 @@ fn prepare(program: &str, parameters: &toml::Table, inputs: &[String]) -> AppRes
                 outputs: vec![kt3d::OUTPUT_FILE, kt3d::DEBUG_FILE],
             })
         }
-        "sgsim" => Ok(Run {
-            par: sgsim::Params::from_table(parameters)?.to_par(),
-            outputs: vec![sgsim::OUTPUT_FILE],
-        }),
+        "sgsim" => {
+            let p = sgsim::Params::from_table(parameters)?;
+            if let Some(data) = &p.data {
+                require_inputs(&[data], inputs)?;
+            }
+            Ok(Run {
+                par: p.to_par(),
+                outputs: vec![sgsim::OUTPUT_FILE],
+            })
+        }
         other => Err(format!("no fixture generator for {other} yet").into()),
     }
 }
